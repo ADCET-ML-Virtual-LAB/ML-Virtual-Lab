@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, batches, experiments, quizzes, code_submissions, dashboards
+from app.routers import auth, batches, code_submissions, dashboards, experiments, quizzes
 
 app = FastAPI(title="ML Virtual Lab API", version="0.1.0")
 

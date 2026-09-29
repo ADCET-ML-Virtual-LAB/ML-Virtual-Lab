@@ -1,29 +1,20 @@
 import uuid
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 from app.models.user import UserRole
 
 
-class UserBase(BaseModel):
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
     full_name: str
     email: EmailStr
     roll_number: Optional[str] = None
     role: UserRole
-
-
-class StudentRegisterRequest(BaseModel):
-    full_name: str
-    email: EmailStr
-    roll_number: str  # checked against RosterEntry before account creation
-    password: str
-
-
-class UserOut(UserBase):
-    model_config = ConfigDict(from_attributes=True)
-    id: uuid.UUID
     is_active: bool
+    must_change_password: bool
 
 
 class LoginRequest(BaseModel):
@@ -33,5 +24,10 @@ class LoginRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
+    must_change_password: bool  # frontend redirects straight to the change-password screen if true
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str  # frontend enforces min length; backend also checks (see router)
