@@ -1,7 +1,5 @@
 import uuid
-from typing import Optional
-
-from sqlalchemy import String, ForeignKey, UniqueConstraint, Boolean, DateTime, func
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -18,7 +16,6 @@ class Batch(Base, UUIDPKMixin, TimestampMixin):
 
     enrollments = relationship("Enrollment", back_populates="batch")
     instructor_assignments = relationship("InstructorAssignment", back_populates="batch")
-    roster_entries = relationship("RosterEntry", back_populates="batch")
 
 
 class Enrollment(Base, UUIDPKMixin):
@@ -47,20 +44,3 @@ class InstructorAssignment(Base, UUIDPKMixin):
 
     instructor = relationship("User", back_populates="instructor_assignments", foreign_keys=[instructor_id])
     batch = relationship("Batch", back_populates="instructor_assignments")
-
-
-class RosterEntry(Base, UUIDPKMixin, TimestampMixin):
-    """
-    Pre-uploaded whitelist (roll number -> batch) that self-registration is
-    validated against. A row flips is_registered=True once the matching
-    student signs up, so Admin can see who from the roster hasn't joined yet.
-    """
-    __tablename__ = "roster_entries"
-
-    roll_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
-    full_name: Mapped[str] = mapped_column(String(150), nullable=False)
-    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    batch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("batches.id", ondelete="CASCADE"), nullable=False)
-    is_registered: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-
-    batch = relationship("Batch", back_populates="roster_entries")
