@@ -152,3 +152,62 @@ def upload_students(
     background_tasks.add_task(send_credentials_emails, to_email)
 
     return StudentUploadResponse(created=created, skipped=len(rows) - created, rows=rows)
+
+
+# ── Instructor assignment endpoints (Admin only) ─────────────────────────────
+
+from pydantic import BaseModel as _PydanticBase
+
+
+class _InstructorAssignRequest(_PydanticBase):
+    instructor_id: uuid.UUID
+
+
+@router.post("/{batch_id}/instructors", status_code=status.HTTP_201_CREATED)
+def assign_instructor_to_batch(
+    batch_id: uuid.UUID,
+    payload: _InstructorAssignRequest,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_roles(UserRole.admin)),
+):
+    """Assign an instructor (admin only) to a batch."""
+    batch = _get_batch_or_404(batch_id, db)
+    instructor = db.get(User, payload.instructor_id)
+    if instructor is None or instructor.role != UserRole.instructor:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Instructor not found")
+
+    existing = (
+        db.query(InstructorAssignment)
+        .filter(
+            InstructorAssignment.instructor_id == payload.instructor_id,
+            InstructorAssignment.batch_id == batch_id,
+        )
+        .first()
+    )
+    if existing:
+        return {"detail": "Already assigned"}
+
+    db.add(InstructorAssignment(instructor_id=payload.instructor_id, batch_id=batch_id))
+    db.commit()
+    return {"detail": "Instructor assigned"}
+
+
+@router.get("/{batch_id}/students")
+def list_batch_students(
+    batch_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
+):
+    """List all students enrolled in a batch."""
+    batch = _get_batch_or_404(batch_id, db)
+    _assert_can_manage_batch(batch_id, user, db)
+    return [
+        {
+            "id": str(e.student.id),
+            "full_name": e.student.full_name,
+            "email": e.student.email,
+            "roll_number": e.student.roll_number,
+            "enrolled_at": e.enrolled_at.isoformat(),
+        }
+        for e in batch.enrollments
+    ]
