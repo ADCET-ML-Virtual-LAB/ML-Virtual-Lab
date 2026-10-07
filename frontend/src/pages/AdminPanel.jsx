@@ -262,6 +262,10 @@ function ExperimentsTab() {
   const [slug, setSlug] = useState("");
   const [aim, setAim] = useState("");
   const [objective, setObjective] = useState("");
+  
+  const [selectedExp, setSelectedExp] = useState(null);
+  const [evalSpecJson, setEvalSpecJson] = useState("");
+  
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -289,13 +293,25 @@ function ExperimentsTab() {
     }
   }
 
+  async function handleSetEvalSpec(e) {
+    e.preventDefault();
+    setMessage(""); setError("");
+    if (!selectedExp) return;
+    try {
+      const parsedJson = JSON.parse(evalSpecJson);
+      await experimentsApi.setEvalSpec(selectedExp.id, { expected_output: parsedJson, comparison_tolerance: 0.01 });
+      setMessage(`Evaluation Spec updated for ${selectedExp.title}`);
+    } catch (err) {
+      setError(err instanceof SyntaxError ? "Invalid JSON" : err.response?.data?.detail || "Failed to update Eval Spec");
+    }
+  }
+
   return (
     <div className="admin-tab admin-grid">
       <div className="card">
-        <h2 className="section-header">Create Experiment (Basic)</h2>
+        <h2 className="section-header">Create Experiment</h2>
         {message && <div className="alert alert--success mb-2">{message}</div>}
         {error && <div className="alert alert--error mb-2">{error}</div>}
-        <p className="admin-help">For a full draft, we just do basic fields here. You can patch it later via API.</p>
         
         <form onSubmit={handleCreate} className="auth-form">
           <label className="form-label">
@@ -319,15 +335,42 @@ function ExperimentsTab() {
       </div>
 
       <div className="card">
-        <h2 className="section-header">Published Experiments</h2>
-        <ul>
+        <h2 className="section-header">Manage Experiments</h2>
+        <ul className="mb-2">
           {experiments.map(exp => (
-            <li key={exp.id} className="mb-2">
-              <strong>{exp.title}</strong> <code>({exp.slug})</code>
+            <li key={exp.id} className="mb-2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <strong>{exp.title}</strong> <code>({exp.slug})</code>
+              </div>
+              <button 
+                className="btn btn--ghost" 
+                onClick={() => { setSelectedExp(exp); setEvalSpecJson('{\n  "accuracy": 0.85\n}'); }}
+                style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+              >
+                Configure
+              </button>
             </li>
           ))}
           {experiments.length === 0 && <p className="admin-help">No experiments yet.</p>}
         </ul>
+
+        {selectedExp && (
+          <div style={{ marginTop: '2rem', borderTop: '1px solid var(--color-border)', paddingTop: '1rem' }}>
+            <h3 className="section-header" style={{fontSize: '1rem'}}>Set Evaluation Spec: {selectedExp.title}</h3>
+            <p className="admin-help">JSON representing the expected output dictionary to compare against client execution.</p>
+            <form onSubmit={handleSetEvalSpec} className="auth-form">
+              <textarea 
+                className="form-textarea" 
+                value={evalSpecJson} 
+                onChange={e => setEvalSpecJson(e.target.value)} 
+                rows={6}
+                required 
+                style={{ fontFamily: 'monospace' }}
+              />
+              <button className="btn btn--primary">Save Eval Spec</button>
+            </form>
+          </div>
+        )}
       </div>
     </div>
   );
