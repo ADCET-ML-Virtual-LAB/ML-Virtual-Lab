@@ -1,12 +1,14 @@
 import uuid
 from typing import Optional
 
-from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, Float
+from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, Float, JSON
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.models.common import UUIDPKMixin, TimestampMixin
+
+CustomJSON = JSON().with_variant(JSONB, "postgresql")
 
 
 class Experiment(Base, UUIDPKMixin, TimestampMixin):
@@ -22,14 +24,14 @@ class Experiment(Base, UUIDPKMixin, TimestampMixin):
     # Module 5 — Guided/Parametric Lab: sliders/inputs shown to the student
     # and how they map to a client-side computation (e.g. which algorithm,
     # parameter ranges, chart type).
-    lab_config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    lab_config: Mapped[Optional[dict]] = mapped_column(CustomJSON, nullable=True)
 
     # Module 6 — Free-form Code Editor. Since execution now happens fully in
     # the student's browser (Pyodide), the backend never runs student code.
     # starter_code seeds the editor; allowed_imports is the whitelist the
     # frontend enforces before running a cell.
     starter_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    allowed_imports: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)  # e.g. ["numpy","pandas"]
+    allowed_imports: Mapped[Optional[list]] = mapped_column(CustomJSON, nullable=True)  # e.g. ["numpy","pandas"]
 
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -54,7 +56,7 @@ class ExperimentEvaluationSpec(Base, UUIDPKMixin):
     experiment_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("experiments.id", ondelete="CASCADE"), unique=True, nullable=False
     )
-    expected_output: Mapped[dict] = mapped_column(JSONB, nullable=False)  # precomputed offline by the team
+    expected_output: Mapped[dict] = mapped_column(CustomJSON, nullable=False)  # precomputed offline by the team
     comparison_tolerance: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # for value comparisons
 
     experiment = relationship("Experiment", back_populates="evaluation_spec")
