@@ -129,84 +129,109 @@ export default function GuidedLab({ labConfig }) {
 }
 
 /**
- * Simple SVG-based chart renderer for lab outputs.
+ * Recharts-based chart renderer for lab outputs.
  * Supports: scatter points, line series.
  * data = { labels, datasets: [{ label, data: [{x,y}|number], type: "scatter"|"line"|"bar", color }] }
  */
+import {
+  LineChart, Line, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart
+} from "recharts";
+
 function GuidedLabChart({ data }) {
-  if (!data) return null;
-
-  // Determine if datasets have {x,y} or plain numeric values
-  const allPoints = data.datasets.flatMap((ds) =>
-    ds.data.map((d, i) =>
-      typeof d === "object" ? d : { x: i, y: d }
-    )
-  );
-
-  if (allPoints.length === 0) {
-    return <div className="guided-lab__no-data">No data to display.</div>;
-  }
-
-  const W = 480, H = 280, PAD = 40;
-  const xs = allPoints.map((p) => p.x);
-  const ys = allPoints.map((p) => p.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
-  const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
-
-  const toSvgX = (x) => PAD + ((x - minX) / rangeX) * (W - 2 * PAD);
-  const toSvgY = (y) => H - PAD - ((y - minY) / rangeY) * (H - 2 * PAD);
+  if (!data || !data.datasets || data.datasets.length === 0) return null;
 
   const COLORS = ["#2563eb", "#16a34a", "#d97706", "#9333ea", "#dc2626"];
 
-  return (
-    <div className="guided-lab__chart">
-      <svg viewBox={`0 0 ${W} ${H}`} className="guided-lab__svg">
-        {/* Axes */}
-        <line x1={PAD} y1={PAD} x2={PAD} y2={H - PAD} stroke="#cbd5e1" strokeWidth={1} />
-        <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="#cbd5e1" strokeWidth={1} />
+  // Normalize data to a format suitable for Recharts ComposedChart
+  // We need a unified data array where each object has an 'x' or 'name' and then values for each dataset.
+  
+  // If no datasets have explicit x/y coordinates, use index-based grouping
+  const isIndexed = data.datasets.every(ds => typeof ds.data[0] !== 'object');
 
-        {/* Datasets */}
-        {data.datasets.map((ds, di) => {
-          const color = ds.color || COLORS[di % COLORS.length];
-          const points = ds.data.map((d, i) =>
-            typeof d === "object" ? d : { x: i, y: d }
-          );
-          const type = ds.type || "line";
+  if (isIndexed) {
+    const maxLen = Math.max(...data.datasets.map(ds => ds.data.length));
+    const unifiedData = Array.from({ length: maxLen }).map((_, i) => {
+      const row = { name: data.labels ? data.labels[i] : i };
+      data.datasets.forEach((ds, di) => {
+        row[`dataset_${di}`] = ds.data[i];
+      });
+      return row;
+    });
 
-          if (type === "scatter") {
-            return points.map((p, pi) => (
-              <circle
-                key={pi}
-                cx={toSvgX(p.x)}
-                cy={toSvgY(p.y)}
-                r={3}
-                fill={color}
-                opacity={0.8}
-              />
-            ));
-          }
-
-          // Line chart
-          const d = points
-            .map((p, i) => `${i === 0 ? "M" : "L"}${toSvgX(p.x)},${toSvgY(p.y)}`)
-            .join(" ");
-          return <path key={di} d={d} stroke={color} strokeWidth={2} fill="none" />;
-        })}
-      </svg>
-
-      {/* Legend */}
-      <div className="guided-lab__legend">
-        {data.datasets.map((ds, di) => (
-          <span key={di} className="guided-lab__legend-item">
-            <span
-              className="guided-lab__legend-dot"
-              style={{ background: ds.color || COLORS[di % COLORS.length] }}
+    return (
+      <div className="guided-lab__chart" style={{ height: "350px", width: "100%" }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={unifiedData} margin={{ top: 10, right: 10, bottom: 10, left: -20 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#cbd5e1' }} />
+            <YAxis tick={{ fontSize: 12, fill: '#64748b' }} tickLine={false} axisLine={false} />
+            <Tooltip
+              contentStyle={{ borderRadius: '6px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}
             />
-            {ds.label}
-          </span>
-        ))}
+            <Legend wrapperStyle={{ fontSize: '13px' }} />
+            {data.datasets.map((ds, di) => {
+              const color = ds.color || COLORS[di % COLORS.length];
+              if (ds.type === "scatter") {
+                return <Scatter key={di} name={ds.label} dataKey={`dataset_${di}`} fill={color} />;
+              }
+              return (
+                <Line
+                  key={di}
+                  type="monotone"
+                  name={ds.label}
+                  dataKey={`dataset_${di}`}
+                  stroke={color}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 6 }}
+                />
+              );
+            })}
+          </ComposedChart>
+        </ResponsiveContainer>
       </div>
+    );
+  }
+
+  // Scatter/XY data
+  return (
+    <div className="guided-lab__chart" style={{ height: "350px", width: "100%" }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis type="number" dataKey="x" name="X" tick={{ fontSize: 12 }} />
+          <YAxis type="number" dataKey="y" name="Y" tick={{ fontSize: 12 }} />
+          <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+          <Legend />
+          {data.datasets.map((ds, di) => {
+            const color = ds.color || COLORS[di % COLORS.length];
+            const formattedData = ds.data.map((d, i) => (typeof d === 'object' ? d : { x: i, y: d }));
+            
+            if (ds.type === "line") {
+              // Hack to draw lines in a ScatterChart using Recharts
+              return (
+                <Scatter
+                  key={di}
+                  name={ds.label}
+                  data={formattedData}
+                  fill={color}
+                  line={{ stroke: color, strokeWidth: 2 }}
+                  shape="circle"
+                />
+              );
+            }
+            return (
+              <Scatter
+                key={di}
+                name={ds.label}
+                data={formattedData}
+                fill={color}
+                shape="circle"
+              />
+            );
+          })}
+        </ScatterChart>
+      </ResponsiveContainer>
     </div>
   );
 }
