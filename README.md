@@ -66,6 +66,34 @@ frontend should route them straight to `POST /auth/change-password` and
 block everything else until it's `false` (`get_current_active_user` in
 `app/core/deps.py` enforces this server-side).
 
+## Testing & Seed Data
+To make testing easier, you can run the seed scripts to populate the database with experiments, batches, instructors, and students.
+
+```bash
+cd backend
+source venv/bin/activate
+export PYTHONPATH=.
+python scripts/seed_experiments.py
+python scripts/seed_data.py
+```
+
+### Seed Credentials
+The `seed_data.py` script creates default users for testing. Use these credentials to log in:
+
+**Admin:**
+- Email: `admin@college.edu`
+- Password: `AdminPass123!`
+
+**Instructors (5 users):**
+- Email: `instructor1@college.edu` to `instructor5@college.edu`
+- Password: `InstPass123!`
+
+**Students (15 users):**
+- Email: `student1@college.edu` to `student15@college.edu`
+- Password: `StudPass123!`
+
+*Note: All students are created with `must_change_password=False` by default in the seeder so you can test endpoints immediately without being forced to change the password first.*
+
 ## Database schema
 14 tables, grouped by module — see `backend/app/models/`:
 - **Auth**: `users`, `refresh_tokens`
