@@ -42,3 +42,50 @@ def change_password(
     db.commit()
     db.refresh(user)
     return user
+
+
+# ── Admin-only: create instructor account ────────────────────────────────────
+
+from pydantic import BaseModel as _PydanticBase, EmailStr as _EmailStr
+from app.core.deps import require_roles as _require_roles
+from app.models.user import UserRole as _UserRole
+from sqlalchemy.exc import IntegrityError as _IntegrityError
+
+
+class _InstructorCreate(_PydanticBase):
+    full_name: str
+    email: _EmailStr
+    password: str
+
+
+@router.post("/instructors", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def create_instructor(
+    payload: _InstructorCreate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(_require_roles(_UserRole.admin)),
+):
+    """Admin-only: create an instructor account with a known password."""
+    instructor = User(
+        full_name=payload.full_name.strip(),
+        email=payload.email.lower(),
+        password_hash=hash_password(payload.password),
+        role=_UserRole.instructor,
+        must_change_password=False,
+    )
+    db.add(instructor)
+    try:
+        db.commit()
+    except _IntegrityError:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Email already in use")
+    db.refresh(instructor)
+    return instructor
+
+
+@router.get("/users", response_model=list[UserOut])
+def list_users(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(_require_roles(_UserRole.admin)),
+):
+    """Admin-only: list all users (for admin panel)."""
+    return db.query(User).order_by(User.full_name).all()

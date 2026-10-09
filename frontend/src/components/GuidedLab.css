@@ -1,0 +1,92 @@
+.guided-lab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.guided-lab--empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.guided-lab__desc {
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+}
+
+.guided-lab__controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-2);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+}
+
+.guided-lab__param .form-label {
+  gap: 0.5rem;
+}
+
+.guided-lab__range-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.guided-lab__slider {
+  flex: 1;
+  accent-color: var(--color-primary);
+}
+
+.guided-lab__range-val {
+  min-width: 2.5rem;
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.guided-lab__output {
+  margin-top: var(--space-1);
+}
+
+.guided-lab__chart {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+}
+
+.guided-lab__svg {
+  width: 100%;
+  max-width: 480px;
+  display: block;
+}
+
+.guided-lab__legend {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.guided-lab__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.guided-lab__legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.guided-lab__no-data {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  padding: var(--space-2);
+  text-align: center;
+}
