@@ -2,7 +2,7 @@
 import uuid
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StepStatus:
@@ -12,7 +12,7 @@ class StepStatus:
 
 
 class ExperimentProgress(BaseModel):
-    """A student's own view of one experiment. The guided lab is practice only and is not a tracked step."""
+    """A student's own progress, including manually tracked static sections."""
     experiment_id: uuid.UUID
     experiment_title: str
     pre_quiz: str  # StepStatus values
@@ -21,6 +21,7 @@ class ExperimentProgress(BaseModel):
     assignment: str
     assignment_score: Optional[float] = None
     overall_status: str
+    section_statuses: dict[str, str] = Field(default_factory=dict)
 
 
 class InstructorExperimentProgress(BaseModel):

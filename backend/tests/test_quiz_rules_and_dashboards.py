@@ -65,13 +65,14 @@ def test_instructor_gets_no_attempt_counts(client, db):
     assert pre["my_best_score"] is None
 
 
-def test_student_progress_has_no_guided_lab(client, db):
+def test_student_progress_includes_manual_section_statuses(client, db):
     make_experiment(db)
     student = make_user(db)
 
     rows = client.get("/dashboards/student", headers=student.headers).json()
     assert len(rows) == 1
-    assert "guided_lab" not in rows[0]
+    assert "section_statuses" in rows[0]
+    assert rows[0]["section_statuses"]["guided-lab"] == "not_started"
     assert set(rows[0]) == {
         "experiment_id",
         "experiment_title",
@@ -81,6 +82,7 @@ def test_student_progress_has_no_guided_lab(client, db):
         "assignment",
         "assignment_score",
         "overall_status",
+        "section_statuses",
     }
 
 

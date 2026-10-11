@@ -1,11 +1,10 @@
-"""
-Progress derivation service — computes ExperimentProgress from existing DB rows.
+"""Progress derivation and assignment-prerequisite checks.
 
-Called by both the student dashboard (own progress) and the instructor dashboard
-(progress for all students in a batch).  Progress is never stored in a separate
-table — it's derived on read from QuizSubmission and CodeSubmission rows.
+Manually tracked sections are read from SectionCompletion rows. Quiz, code and
+assignment completion is derived from their respective persisted submissions.
 """
 import uuid
+from datetime import datetime, timezone
 from typing import Sequence
 
 from sqlalchemy import func
@@ -15,8 +14,10 @@ from app.models.code_submission import CodeSubmission, SubmissionStatus
 from app.models.experiment import Experiment
 from app.models.quiz import Quiz, QuizSubmission, QuizType, RevealPolicy
 from app.schemas.dashboard import ExperimentProgress
-from datetime import datetime, timezone
-
+from app.services.section_tracking import (
+    STATIC_SECTION_LABELS,
+    get_completed_section_keys,
+)
 
 _NS = "not_started"
 _IP = "in_progress"
@@ -27,51 +28,69 @@ def derive_experiment_progress(
     student_id: uuid.UUID,
     experiments: Sequence[Experiment],
     db: Session,
+    *,
+    student_view: bool = False,
 ) -> list[ExperimentProgress]:
+    """Return one progress entry per published experiment.
+
+    ``student_view`` makes the assignment score visible immediately to the
+    student after submission. Instructor-facing calls retain the configured
+    reveal policy; their response schema still excludes pre/post quiz scores.
     """
-    For one student, return an ExperimentProgress entry per published experiment.
-    """
-    results = []
+    results: list[ExperimentProgress] = []
 
     for exp in experiments:
         if not exp.is_published:
             continue
 
         quizzes_by_type: dict[str, Quiz] = {q.quiz_type.value: q for q in exp.quizzes}
+        completed_static = get_completed_section_keys(student_id, exp.id, db)
+        section_statuses = {
+            key: (_CO if key in completed_static else _NS)
+            for key in STATIC_SECTION_LABELS
+        }
 
-        # ── Pre-quiz ──────────────────────────────────────────────────────────
+        # Pre-quiz: submission, not score, determines completion.
+        pre_q = quizzes_by_type.get(QuizType.pre.value)
         pre_quiz_status = _NS
-        pre_q = quizzes_by_type.get("pre")
         if pre_q:
-            has_sub = db.query(QuizSubmission).filter(
+            has_sub = db.query(QuizSubmission.id).filter(
                 QuizSubmission.student_id == student_id,
                 QuizSubmission.quiz_id == pre_q.id,
-            ).first()
+            ).first() is not None
             pre_quiz_status = _CO if has_sub else _NS
 
-        # ── Code exercise ─────────────────────────────────────────────────────
+        # Code exercise: once any valid matching result is saved, it stays complete.
         code_status = _NS
-        code_sub = db.query(CodeSubmission).filter(
-            CodeSubmission.student_id == student_id,
-            CodeSubmission.experiment_id == exp.id,
-        ).order_by(CodeSubmission.submitted_at.desc()).first()
-        if code_sub:
-            code_status = _CO if code_sub.status == SubmissionStatus.matched else _IP
+        if exp.evaluation_spec is not None:
+            has_match = db.query(CodeSubmission.id).filter(
+                CodeSubmission.student_id == student_id,
+                CodeSubmission.experiment_id == exp.id,
+                CodeSubmission.status == SubmissionStatus.matched,
+            ).first() is not None
+            if has_match:
+                code_status = _CO
+            else:
+                has_attempt = db.query(CodeSubmission.id).filter(
+                    CodeSubmission.student_id == student_id,
+                    CodeSubmission.experiment_id == exp.id,
+                ).first() is not None
+                code_status = _IP if has_attempt else _NS
 
-        # ── Post-quiz ─────────────────────────────────────────────────────────
+        # Post-quiz: submission, not score, determines completion.
+        post_q = quizzes_by_type.get(QuizType.post.value)
         post_quiz_status = _NS
-        post_q = quizzes_by_type.get("post")
         if post_q:
-            has_sub = db.query(QuizSubmission).filter(
+            has_sub = db.query(QuizSubmission.id).filter(
                 QuizSubmission.student_id == student_id,
                 QuizSubmission.quiz_id == post_q.id,
-            ).first()
+            ).first() is not None
             post_quiz_status = _CO if has_sub else _NS
 
-        # ── Assignment ────────────────────────────────────────────────────────
+        # Assignment: any accepted submission makes it complete regardless of score.
         assignment_status = _NS
         assignment_score: float | None = None
-        asgn_q = quizzes_by_type.get("assignment")
+        asgn_q = quizzes_by_type.get(QuizType.assignment.value)
         if asgn_q:
             latest_sub = (
                 db.query(QuizSubmission)
@@ -84,13 +103,22 @@ def derive_experiment_progress(
             )
             if latest_sub:
                 assignment_status = _CO
-                # Reveal score based on policy
-                if score_is_revealed(asgn_q):
+                if student_view or score_is_revealed(asgn_q):
                     assignment_score = latest_sub.score
 
-        # ── Overall status ────────────────────────────────────────────────────
-        trackable = [pre_quiz_status, code_status, post_quiz_status, assignment_status]
-        overall = _CO if all(s == _CO for s in trackable) else (
+        # Every configured static section is required. Activity sections are
+        # included only when that activity exists for the experiment.
+        trackable = list(section_statuses.values())
+        if pre_q:
+            trackable.append(pre_quiz_status)
+        if exp.evaluation_spec is not None:
+            trackable.append(code_status)
+        if post_q:
+            trackable.append(post_quiz_status)
+        if asgn_q:
+            trackable.append(assignment_status)
+
+        overall = _CO if trackable and all(s == _CO for s in trackable) else (
             _IP if any(s != _NS for s in trackable) else _NS
         )
 
@@ -103,6 +131,7 @@ def derive_experiment_progress(
             assignment=assignment_status,
             assignment_score=assignment_score,
             overall_status=overall,
+            section_statuses=section_statuses,
         ))
 
     return results
@@ -113,37 +142,62 @@ def missing_assignment_prerequisites(
     exp: Experiment,
     db: Session,
 ) -> list[str]:
-    """
-    Steps a student must still finish before the graded assignment unlocks.
-    An empty list means the assignment is open.
+    """Return unmet prerequisites in the same order as the student workflow.
 
-    Strict rule (may be relaxed later): Pre-Quiz and Post-Quiz must be submitted,
-    and the Code Exercise result must MATCH the stored expected result.
-    "Completed" means exactly what it means in derive_experiment_progress, so the
-    lock and the progress screens can never disagree.
-
-    A step the experiment does not have cannot be required:
-      - no pre/post quiz defined      -> that quiz is skipped
-      - no evaluation spec defined    -> nothing can ever match, so the code step is skipped
-    The guided lab is practice only and is never required.
+    All currently defined manual sections are required. Pre/post quizzes and the
+    Code Exercise are prerequisites when the corresponding activity is defined.
+    This function is shared by experiment details, quiz access and submission.
     """
-    progress = derive_experiment_progress(student_id, [exp], db)
-    # derive_experiment_progress skips unpublished experiments -> nothing is completed.
-    p = progress[0] if progress else None
-    quiz_types = {q.quiz_type.value for q in exp.quizzes}
+    completed_static = get_completed_section_keys(student_id, exp.id, db)
+    quiz_types = {q.quiz_type.value: q for q in exp.quizzes}
+    pre_q = quiz_types.get(QuizType.pre.value)
+    post_q = quiz_types.get(QuizType.post.value)
+
+    pre_submitted = bool(pre_q) and db.query(QuizSubmission.id).filter(
+        QuizSubmission.student_id == student_id,
+        QuizSubmission.quiz_id == pre_q.id,
+    ).first() is not None
+    post_submitted = bool(post_q) and db.query(QuizSubmission.id).filter(
+        QuizSubmission.student_id == student_id,
+        QuizSubmission.quiz_id == post_q.id,
+    ).first() is not None
+    code_matched = False
+    if exp.evaluation_spec is not None:
+        code_matched = db.query(CodeSubmission.id).filter(
+            CodeSubmission.student_id == student_id,
+            CodeSubmission.experiment_id == exp.id,
+            CodeSubmission.status == SubmissionStatus.matched,
+        ).first() is not None
+
+    # The order reflects the existing experiment flow. Change it only together
+    # with the approved section ordering in the student workspace.
+    ordered_requirements = [
+        ("overview", STATIC_SECTION_LABELS["overview"], True),
+        ("aim-objectives", STATIC_SECTION_LABELS["aim-objectives"], True),
+        ("pre-quiz", "Pre-Quiz", pre_q is not None and not pre_submitted),
+        ("video", STATIC_SECTION_LABELS["video"], True),
+        ("theory", STATIC_SECTION_LABELS["theory"], True),
+        ("guided-lab", STATIC_SECTION_LABELS["guided-lab"], True),
+        ("code-exercise", "Code Exercise (output must match the expected result)", exp.evaluation_spec is not None and not code_matched),
+        ("post-quiz", "Post-Quiz", post_q is not None and not post_submitted),
+    ]
 
     missing: list[str] = []
-    if "pre" in quiz_types and (p is None or p.pre_quiz != _CO):
-        missing.append("Pre-Quiz")
-    if exp.evaluation_spec is not None and (p is None or p.code_exercise != _CO):
-        missing.append("Code Exercise")
-    if "post" in quiz_types and (p is None or p.post_quiz != _CO):
-        missing.append("Post-Quiz")
+    for key, label, required in ordered_requirements:
+        if not required:
+            continue
+        if key in STATIC_SECTION_LABELS:
+            if key not in completed_static:
+                missing.append(label)
+        else:
+            # Dynamic activities have already encoded their missing status in
+            # the third tuple element above.
+            missing.append(label)
     return missing
 
 
 def score_is_revealed(quiz: Quiz) -> bool:
-    """May the student see this quiz's score yet? The quiz's reveal_policy decides."""
+    """Apply the configured score-release policy for non-student-facing views."""
     if quiz.reveal_policy == RevealPolicy.immediate:
         return True
     if quiz.reveal_policy == RevealPolicy.after_deadline:
@@ -152,12 +206,11 @@ def score_is_revealed(quiz: Quiz) -> bool:
 
 
 def quiz_attempt_summary(student_id: uuid.UUID, quiz: Quiz, db: Session) -> tuple[int, float | None]:
-    """
-    (attempts so far, best score the student is allowed to see).
+    """Return attempt count and best score for current compatibility with quiz UI.
 
-    Pre/post quizzes are self-assessment, so their best score is always visible to the student.
-    The graded assignment follows its reveal policy. These numbers go to the student only,
-    never to instructors (the instructor dashboard and CSV carry the assignment score alone).
+    The next implementation step will remove attempt-history persistence, as
+    required by the approved student design. This helper currently reads the
+    legacy rows so existing quizzes continue to work during the transition.
     """
     attempts, best = (
         db.query(func.count(QuizSubmission.id), func.max(QuizSubmission.score))

@@ -96,8 +96,23 @@ def add_code_submission(db, user, exp, status: SubmissionStatus):
     db.commit()
 
 
+STATIC_SECTION_KEYS = ("overview", "aim-objectives", "theory", "video", "guided-lab")
+
+
+def complete_static_sections(client, user, exp):
+    """Use the public API to complete every required manually tracked section."""
+    for section_key in STATIC_SECTION_KEYS:
+        response = client.post(
+            f"/experiments/{exp.slug}/sections/{section_key}/complete",
+            headers=user.headers,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["completed"] is True
+
+
 def unlock_assignment(client, db, user, exp):
-    """Do everything the assignment lock asks for: pre-quiz, post-quiz and a matching code exercise."""
+    """Complete static sections, quizzes and matching code required to unlock."""
+    complete_static_sections(client, user, exp)
     assert submit_quiz(client, user, exp, "pre").status_code == 201
     assert submit_quiz(client, user, exp, "post").status_code == 201
     add_code_submission(db, user, exp, SubmissionStatus.matched)

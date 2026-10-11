@@ -72,7 +72,7 @@ def student_dashboard(
 ):
     """Own progress and assignment scores across all published experiments. Students only."""
     experiments = _get_published_experiments(db)
-    return derive_experiment_progress(current_user.id, experiments, db)
+    return derive_experiment_progress(current_user.id, experiments, db, student_view=True)
 
 
 # ── Instructor dashboard ──────────────────────────────────────────────────────

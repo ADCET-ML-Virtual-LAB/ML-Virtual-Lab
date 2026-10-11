@@ -12,6 +12,7 @@ class ExperimentOut(BaseModel):
 
     id: uuid.UUID
     title: str
+    overview: Optional[str] = None
     slug: str
     aim: str
     objective: str
@@ -34,11 +35,14 @@ class ExperimentDetailOut(ExperimentOut):
     """
     quizzes: list[QuizOut] = []
     assignment_locked: bool = False
-    assignment_missing_steps: list[str] = []  # e.g. ["Pre-Quiz", "Code Exercise"]
+    assignment_missing_steps: list[str] = Field(default_factory=list)
+    # Student-only status map sourced from saved SectionCompletion rows.
+    section_completions: dict[str, bool] = Field(default_factory=dict)
 
 
 class ExperimentCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+    overview: Optional[str] = None
     slug: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")
     aim: str = Field(min_length=1)
     objective: str = Field(min_length=1)
@@ -53,6 +57,7 @@ class ExperimentCreate(BaseModel):
 
 class ExperimentUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    overview: Optional[str] = None
     aim: Optional[str] = None
     objective: Optional[str] = None
     notes: Optional[str] = None

@@ -15,6 +15,7 @@ class Experiment(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "experiments"
 
     title: Mapped[str] = mapped_column(String(200), nullable=False)
+    overview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     slug: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True)
     aim: Mapped[str] = mapped_column(Text, nullable=False)
     objective: Mapped[str] = mapped_column(Text, nullable=False)
@@ -38,6 +39,9 @@ class Experiment(Base, UUIDPKMixin, TimestampMixin):
 
     quizzes = relationship("Quiz", back_populates="experiment", cascade="all, delete-orphan")
     code_submissions = relationship("CodeSubmission", back_populates="experiment")
+    section_completion_records = relationship(
+        "SectionCompletion", back_populates="experiment", cascade="all, delete-orphan"
+    )
     evaluation_spec = relationship(
         "ExperimentEvaluationSpec", back_populates="experiment", uselist=False, cascade="all, delete-orphan"
     )

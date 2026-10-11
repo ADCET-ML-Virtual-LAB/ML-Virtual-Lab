@@ -5,6 +5,9 @@ export const experimentsApi = {
 
   get: (slug) => api.get(`/experiments/${slug}`).then((r) => r.data),
 
+  markSectionCompleted: (slug, sectionKey) =>
+    api.post(`/experiments/${encodeURIComponent(slug)}/sections/${encodeURIComponent(sectionKey)}/complete`).then((r) => r.data),
+
   create: (data) => api.post("/experiments", data).then((r) => r.data),
 
   update: (slug, data) => api.patch(`/experiments/${slug}`, data).then((r) => r.data),

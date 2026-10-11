@@ -100,6 +100,15 @@ def _get_experiment(client, user, exp) -> dict:
     return resp.json()
 
 
+def _complete_static_sections(client, user, exp):
+    for section_key in ("overview", "aim-objectives", "theory", "video", "guided-lab"):
+        response = client.post(
+            f"/experiments/{exp.slug}/sections/{section_key}/complete",
+            headers=user.headers,
+        )
+        assert response.status_code == 200, response.text
+
+
 def _quiz_in(data: dict, quiz_type: str) -> dict:
     return next(q for q in data["quizzes"] if q["quiz_type"] == quiz_type)
 
@@ -110,7 +119,10 @@ def test_locked_assignment_is_hidden_from_a_student_with_no_progress(client, db)
 
     data = _get_experiment(client, student, exp)
     assert data["assignment_locked"] is True
-    assert data["assignment_missing_steps"] == ["Pre-Quiz", "Code Exercise", "Post-Quiz"]
+    assert data["assignment_missing_steps"] == [
+        "Experiment Title / Overview", "Aim / Learning Objectives", "Pre-Quiz", "Video",
+        "Theory / Reading Material", "Guided Lab", "Code Exercise (output must match the expected result)", "Post-Quiz"
+    ]
     assert _quiz_in(data, "assignment")["questions"] == []  # cannot even be viewed
     assert len(_quiz_in(data, "pre")["questions"]) == 1  # other quizzes stay open
 
@@ -125,13 +137,14 @@ def test_assignment_stays_locked_if_code_output_does_not_match(client, db):
     exp = _make_experiment(db)
     student = _make_user(db)
 
+    _complete_static_sections(client, student, exp)
     assert _submit_quiz(client, student, exp, "pre").status_code == 201
     assert _submit_quiz(client, student, exp, "post").status_code == 201
     _add_code_submission(db, student, exp, SubmissionStatus.mismatched)
 
     data = _get_experiment(client, student, exp)
     assert data["assignment_locked"] is True
-    assert data["assignment_missing_steps"] == ["Code Exercise"]
+    assert data["assignment_missing_steps"] == ["Code Exercise (output must match the expected result)"]
     assert _submit_quiz(client, student, exp, "assignment").status_code == 403
 
 
@@ -139,6 +152,7 @@ def test_assignment_opens_when_everything_is_done(client, db):
     exp = _make_experiment(db)
     student = _make_user(db)
 
+    _complete_static_sections(client, student, exp)
     assert _submit_quiz(client, student, exp, "pre").status_code == 201
     assert _submit_quiz(client, student, exp, "post").status_code == 201
     _add_code_submission(db, student, exp, SubmissionStatus.matched)
@@ -158,6 +172,7 @@ def test_code_step_is_skipped_when_experiment_has_no_expected_result(client, db)
     exp = _make_experiment(db, with_spec=False)
     student = _make_user(db)
 
+    _complete_static_sections(client, student, exp)
     assert _submit_quiz(client, student, exp, "pre").status_code == 201
     assert _submit_quiz(client, student, exp, "post").status_code == 201
 
