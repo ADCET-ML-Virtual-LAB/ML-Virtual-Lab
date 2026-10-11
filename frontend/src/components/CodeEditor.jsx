@@ -93,7 +93,7 @@ export default function CodeEditor({ experiment, onSubmitted, canSubmit = true }
             onClick={handleSubmit}
             disabled={submitting}
           >
-            {submitting ? "Submitting…" : "Submit for feedback"}
+            {submitting ? "Submitting…" : "Submit"}
           </button>
         )}
         <span className={`code-editor__status code-editor__status--${status}`}>

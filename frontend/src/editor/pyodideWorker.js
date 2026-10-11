@@ -48,14 +48,17 @@ _allowed = ${JSON.stringify(allowed)}
 _tree = _ast.parse(_code)
 _bad = []
 for _node in _ast.walk(_tree):
-    if isinstance(_node, (_ast.Import, _ast.ImportFrom)):
-        for _alias in getattr(_node, 'names', []):
+    if isinstance(_node, _ast.Import):
+        # "import numpy as np": each alias is a module name.
+        for _alias in _node.names:
             _top = _alias.name.split('.')[0]
             if _top not in _allowed:
                 _bad.append(_top)
-        _mod = getattr(_node, 'module', None)
-        if _mod:
-            _top = _mod.split('.')[0]
+    elif isinstance(_node, _ast.ImportFrom):
+        # "from sklearn.linear_model import LinearRegression": only the module
+        # (sklearn.linear_model) is checked. The imported names are not modules.
+        if _node.level == 0 and _node.module:
+            _top = _node.module.split('.')[0]
             if _top not in _allowed:
                 _bad.append(_top)
 
@@ -83,7 +86,8 @@ import json as _json
 
 _output = None
 try:
-    _locals = {}
+    # Run as a script: "if __name__ == '__main__':" blocks must execute.
+    _locals = {"__name__": "__main__"}
     exec(${JSON.stringify(code)}, _locals)
     # Try to grab a variable named "result" or "output" if the student set one
     _output = _locals.get("result", _locals.get("output", None))

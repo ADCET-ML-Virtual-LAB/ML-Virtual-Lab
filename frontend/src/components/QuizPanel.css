@@ -202,3 +202,30 @@
   font-size: 1.15rem;
   font-variant-numeric: tabular-nums;
 }
+
+/* Submitted-assignment review (read-only). */
+.quiz-review__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+.quiz-review__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  cursor: default;
+}
+
+.quiz-review__tags {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.quiz-review__tags em {
+  font-style: normal;
+  font-weight: 600;
+}

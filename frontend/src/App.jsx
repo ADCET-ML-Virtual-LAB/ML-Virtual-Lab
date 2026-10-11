@@ -6,8 +6,11 @@ import Layout from "./components/Layout.jsx";
 import Home from "./pages/Home.jsx";
 import Login from "./pages/Login.jsx";
 import ChangePassword from "./pages/ChangePassword.jsx";
+import Experiments from "./pages/Experiments.jsx";
 import ExperimentPage from "./pages/ExperimentPage.jsx";
+import Profile from "./pages/Profile.jsx";
 import StudentDashboard from "./pages/StudentDashboard.jsx";
+import AssignmentScores from "./pages/AssignmentScores.jsx";
 import InstructorDashboard from "./pages/InstructorDashboard.jsx";
 import AdminPanel from "./pages/AdminPanel.jsx";
 
@@ -54,11 +57,14 @@ export default function App() {
       <Route element={<RequireAuth />}>
         <Route element={<Layout />}>
           <Route path="/" element={<Home />} />
+          <Route path="/experiments" element={<Experiments />} />
           <Route path="/experiments/:slug" element={<ExperimentPage />} />
+          <Route path="/profile" element={<Profile />} />
 
           {/* Student only */}
           <Route element={<RequireStudent />}>
             <Route path="/dashboard" element={<StudentDashboard />} />
+            <Route path="/dashboard/assignment-scores" element={<AssignmentScores />} />
           </Route>
 
           {/* Instructor + Admin */}

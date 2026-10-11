@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { dashboardApi } from "../api/dashboard.js";
+import { SECTION_LABELS } from "../constants/sections.js";
 import "./StudentDashboard.css";
 
+// View Progress. Every status here comes from the saved backend state.
 const STATUS_LABEL = {
-  not_started: "Not started",
-  in_progress: "In progress",
+  not_started: "Not Attempted",
+  in_progress: "In Progress",
   completed: "Completed",
 };
 
@@ -14,31 +17,70 @@ const STATUS_BADGE = {
   completed: "badge--green",
 };
 
+// Overall progress = completed sections / all sections across the published
+// experiments, as a whole-number percentage. It shows 100% only when every
+// section is completed.
+function overallPercent(rows) {
+  let total = 0;
+  let done = 0;
+  rows.forEach((row) => {
+    (row.sections || []).forEach((section) => {
+      total += 1;
+      if (section.completed) done += 1;
+    });
+  });
+  if (total === 0) return 0;
+  if (done === total) return 100;
+  return Math.min(99, Math.round((done / total) * 100));
+}
+
 export default function StudentDashboard() {
   const [progress, setProgress] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [openId, setOpenId] = useState(null);
 
   useEffect(() => {
     dashboardApi
       .student()
       .then(setProgress)
-      .catch(() => setError("Failed to load your progress."))
+      .catch(() => setError("Failed to load your progress. Please refresh and try again."))
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="page-loading">Loading your progress…</div>;
 
-  const completed = progress.filter((p) => p.overall_status === "completed").length;
+  const percent = overallPercent(progress);
 
   return (
     <div className="student-dash">
       <div className="student-dash__header">
-        <h1 className="student-dash__title">My Progress</h1>
-        <p className="student-dash__summary">
-          {completed} of {progress.length} experiments completed
-        </p>
+        <div>
+          <h1 className="student-dash__title">View Progress</h1>
+          {!error && (
+            <div className="student-dash__overall">
+              <span className="student-dash__overall-label">Overall progress</span>
+              <strong className="student-dash__overall-value">{percent}%</strong>
+            </div>
+          )}
+        </div>
+        <Link to="/dashboard/assignment-scores" className="btn btn--primary">
+          View Assignment Scores
+        </Link>
       </div>
+
+      {!error && (
+        <div
+          className="student-dash__bar"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+          aria-label="Overall progress"
+        >
+          <div className="student-dash__bar-fill" style={{ width: `${percent}%` }} />
+        </div>
+      )}
 
       {error && <div className="alert alert--error">{error}</div>}
 
@@ -46,54 +88,52 @@ export default function StudentDashboard() {
         <p className="student-dash__empty">No experiments available yet.</p>
       )}
 
-      <div className="progress-grid">
-        {progress.map((exp) => (
-          <div key={exp.experiment_id} className="progress-card">
-            <div className="progress-card__header">
-              <h2 className="progress-card__title">{exp.experiment_title}</h2>
-              <span className={`badge ${STATUS_BADGE[exp.overall_status]}`}>
-                {STATUS_LABEL[exp.overall_status]}
-              </span>
-            </div>
+      <div className="progress-list">
+        {progress.map((exp) => {
+          const open = openId === exp.experiment_id;
+          return (
+            <div key={exp.experiment_id} className="progress-item">
+              <button
+                type="button"
+                className="progress-item__head"
+                aria-expanded={open}
+                onClick={() => setOpenId(open ? null : exp.experiment_id)}
+              >
+                <span className="progress-item__number">
+                  {String(exp.experiment_number).padStart(2, "0")}
+                </span>
+                <span className="progress-item__title">{exp.experiment_title}</span>
+                <span className={`badge ${STATUS_BADGE[exp.overall_status]}`}>
+                  {STATUS_LABEL[exp.overall_status]}
+                </span>
+                <span className="progress-item__chevron" aria-hidden="true">
+                  {open ? "▾" : "▸"}
+                </span>
+              </button>
 
-            <div className="progress-card__steps">
-              <ProgressStep label="Pre-Quiz" status={exp.pre_quiz} />
-              <ProgressStep label="Code Exercise" status={exp.code_exercise} />
-              <ProgressStep label="Post-Quiz" status={exp.post_quiz} />
-              <ProgressStep
-                label="Assignment"
-                status={exp.assignment}
-                score={exp.assignment_score}
-              />
+              {open && (
+                <ul className="progress-item__sections">
+                  {(exp.sections || []).map((section) => (
+                    <li key={section.key} className="progress-section">
+                      <span
+                        className={`progress-section__dot ${section.completed ? "progress-section__dot--done" : ""}`}
+                        role="img"
+                        aria-label={section.completed ? "Completed" : "Not completed"}
+                      />
+                      <span className="progress-section__label">
+                        {SECTION_LABELS[section.key] || section.key}
+                      </span>
+                      {section.completed && (
+                        <span className="progress-section__done">Completed</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
-    </div>
-  );
-}
-
-function ProgressStep({ label, status, score }) {
-  const icons = {
-    not_started: "○",
-    in_progress: "◑",
-    completed: "●",
-  };
-  const colors = {
-    not_started: "var(--color-text-muted)",
-    in_progress: "var(--color-warning)",
-    completed: "var(--color-success)",
-  };
-
-  return (
-    <div className="progress-step">
-      <span className="progress-step__icon" style={{ color: colors[status] }}>
-        {icons[status]}
-      </span>
-      <span className="progress-step__label">{label}</span>
-      {score != null && (
-        <span className="progress-step__score">{score}%</span>
-      )}
     </div>
   );
 }

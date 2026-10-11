@@ -104,8 +104,11 @@ export default function QuizPanel({
     setHasStarted(!isSelfAssessment || readOnly);
   }
 
-  // The assignment can be submitted only once: reopening it shows the saved state, not the form.
+  // The assignment can be submitted only once. Reopening it shows the saved result:
+  // the score, then every question with the correct answer, the student's own
+  // answer and whether it was correct. All of it comes from the backend.
   if (isGraded && !result && quiz.my_submitted) {
+    const reviewByQuestion = new Map((quiz.my_review || []).map((r) => [r.question_id, r]));
     return (
       <div className="quiz-panel">
         <div className="quiz-panel__header">
@@ -115,12 +118,56 @@ export default function QuizPanel({
         <div className="quiz-result">
           <div className="quiz-result__score">
             {quiz.my_assignment_score != null ? (
-              <>You have already submitted this assignment. Score: <strong>{quiz.my_assignment_score}%</strong></>
+              <>Your score: <strong>{quiz.my_assignment_score}%</strong></>
             ) : (
               "The assignment was submitted, but its saved score is not available. Refresh the experiment to retrieve it."
             )}
           </div>
         </div>
+
+        {quiz.questions.length > 0 && !quiz.my_review && (
+          <div className="alert alert--warning" role="status">
+            Your answers could not be loaded. Refresh the experiment to try again.
+          </div>
+        )}
+
+        {quiz.my_review && quiz.questions.map((question, qi) => {
+          const review = reviewByQuestion.get(question.id);
+          const correctIds = review?.correct_option_ids || [];
+          return (
+            <div key={question.id} className="quiz-question quiz-review">
+              <div className="quiz-review__head">
+                <p className="quiz-question__text">
+                  <strong>Q{qi + 1}.</strong> {question.question_text}
+                </p>
+                <span className={`badge ${review?.is_correct ? "badge--green" : "badge--red"}`}>
+                  {review?.is_correct ? "Correct" : "Incorrect"}
+                </span>
+              </div>
+              <div className="quiz-options">
+                {question.options
+                  .slice()
+                  .sort((a, b) => a.order_index - b.order_index)
+                  .map((option) => {
+                    const isCorrectOption = correctIds.includes(option.id);
+                    const isMine = review?.selected_option_id === option.id;
+                    let cls = "quiz-option quiz-review__option";
+                    if (isCorrectOption) cls += " quiz-option--correct";
+                    else if (isMine) cls += " quiz-option--wrong";
+                    return (
+                      <div key={option.id} className={cls}>
+                        <span>{option.option_text}</span>
+                        <span className="quiz-review__tags">
+                          {isMine && <em>Your answer</em>}
+                          {isCorrectOption && <em>Correct answer</em>}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   }

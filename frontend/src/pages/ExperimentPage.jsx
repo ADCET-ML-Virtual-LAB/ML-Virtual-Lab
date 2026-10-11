@@ -1,24 +1,25 @@
 import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { experimentsApi } from "../api/experiments.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import QuizPanel from "../components/QuizPanel.jsx";
+import { SECTION_LABELS } from "../constants/sections.js";
 import GuidedLab from "../components/GuidedLab.jsx";
 import CodeEditor from "../components/CodeEditor.jsx";
 import "./ExperimentPage.css";
 
-// The left-sidebar workspace will replace these tabs in the navigation refactor.
-// Keep the same stable section keys so saved completion records remain valid.
+// Sidebar sections in the approved order. Keep the same stable section keys so
+// saved completion records remain valid.
 const SECTIONS = [
-  { id: "overview", label: "Title / Overview", completionKey: "overview" },
-  { id: "aim", label: "Aim / Learning Objectives", completionKey: "aim-objectives" },
-  { id: "pre-quiz", label: "Pre-Quiz" },
-  { id: "video", label: "Video", completionKey: "video" },
-  { id: "theory", label: "Theory / Reading Material", completionKey: "theory" },
-  { id: "guided-lab", label: "Guided Lab", completionKey: "guided-lab" },
-  { id: "code-editor", label: "Code Exercise" },
-  { id: "post-quiz", label: "Post-Quiz" },
-  { id: "assignment", label: "Assignment" },
+  { id: "overview", label: SECTION_LABELS.overview, completionKey: "overview" },
+  { id: "aim", label: SECTION_LABELS["aim-objectives"], completionKey: "aim-objectives" },
+  { id: "pre-quiz", label: SECTION_LABELS["pre-quiz"] },
+  { id: "video", label: SECTION_LABELS.video, completionKey: "video" },
+  { id: "theory", label: SECTION_LABELS.theory, completionKey: "theory" },
+  { id: "guided-lab", label: SECTION_LABELS["guided-lab"], completionKey: "guided-lab" },
+  { id: "code-editor", label: SECTION_LABELS["code-exercise"] },
+  { id: "post-quiz", label: SECTION_LABELS["post-quiz"] },
+  { id: "assignment", label: SECTION_LABELS.assignment },
 ];
 
 export default function ExperimentPage() {
@@ -32,6 +33,7 @@ export default function ExperimentPage() {
   const [savingSection, setSavingSection] = useState(null);
   const [sectionError, setSectionError] = useState("");
   const [showLockRequirements, setShowLockRequirements] = useState(false);
+  const [checkingAssignment, setCheckingAssignment] = useState(false);
 
   useEffect(() => {
     let isCurrent = true;
@@ -87,14 +89,26 @@ export default function ExperimentPage() {
     }
   }
 
-  function handleSectionSelect(section) {
+  async function handleSectionSelect(section) {
+    if (checkingAssignment) return;
     setSectionError("");
-    if (section.id === "assignment" && isStudent && experiment?.assignment_locked) {
-      // Show the backend-provided prerequisites only after the student clicks.
-      setShowLockRequirements(true);
+
+    if (section.id === "assignment" && isStudent) {
+      // Always ask the backend for the current lock state at click time, so stale
+      // page data can neither unlock nor wrongly lock the assignment.
+      setCheckingAssignment(true);
+      const fresh = await refreshExperiment();
+      setCheckingAssignment(false);
+      if (fresh === null) {
+        setSectionError("We couldn't check the assignment status right now. Please try again.");
+        return;
+      }
+      // The missing-prerequisites list appears only after this click, from fresh data.
+      setShowLockRequirements(Boolean(fresh.assignment_locked));
       setActiveSection("assignment");
       return;
     }
+
     setShowLockRequirements(false);
     setActiveSection(section.id);
   }
@@ -130,37 +144,61 @@ export default function ExperimentPage() {
 
   return (
     <div className="exp-page">
+      <aside className="exp-side" aria-label="Experiment sections">
+        <Link to="/experiments" className="exp-side__back">← All experiments</Link>
+        <p className="exp-side__eyebrow">Experiment {String(experiment.order_index).padStart(2, "0")}</p>
+        <ul className="exp-side__list">
+          {SECTIONS.map((section) => {
+            const locked = section.id === "assignment" && isStudent && experiment.assignment_locked;
+            const sectionQuiz = section.id === "pre-quiz"
+              ? preQuiz
+              : section.id === "post-quiz"
+                ? postQuiz
+                : section.id === "assignment"
+                  ? assignment
+                  : null;
+            // Every tick comes from saved backend state: manual sections from
+            // section_completions, Code Exercise from a saved matched result, and
+            // quizzes/assignment from their saved submission.
+            const complete = section.completionKey
+              ? Boolean(completions[section.completionKey])
+              : section.id === "code-editor"
+                ? Boolean(experiment.code_exercise_completed)
+                : Boolean(sectionQuiz?.my_submitted);
+            const active = activeSection === section.id;
+            return (
+              <li key={section.id}>
+                <button
+                  type="button"
+                  className={`exp-side__item ${active ? "exp-side__item--active" : ""} ${locked ? "exp-side__item--locked" : ""}`}
+                  onClick={() => handleSectionSelect(section)}
+                  disabled={checkingAssignment}
+                  aria-current={active ? "page" : undefined}
+                  title={locked ? "Click to see what remains before the assignment unlocks" : undefined}
+                >
+                  <span className="exp-side__status">
+                    {isStudent && (locked ? (
+                      <span role="img" aria-label="Locked">🔒</span>
+                    ) : (
+                      <span
+                        className={`exp-side__dot ${complete ? "exp-side__dot--done" : ""}`}
+                        role="img"
+                        aria-label={complete ? "Completed" : "Not completed"}
+                      />
+                    ))}
+                  </span>
+                  <span className="exp-side__label">{section.label}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </aside>
+
+      <div className="exp-main">
       <div className="exp-page__header">
         <h1 className="exp-page__title">{experiment.title}</h1>
       </div>
-
-      {/* Temporary tab navigation; the approved contextual left sidebar is the next UI phase. */}
-      <nav className="exp-page__tabs" aria-label="Experiment sections">
-        {SECTIONS.map((section) => {
-          const locked = section.id === "assignment" && isStudent && experiment.assignment_locked;
-          const sectionQuiz = section.id === "pre-quiz"
-            ? preQuiz
-            : section.id === "post-quiz"
-              ? postQuiz
-              : section.id === "assignment"
-                ? assignment
-                : null;
-          const complete = section.completionKey
-            ? Boolean(completions[section.completionKey])
-            : Boolean(sectionQuiz?.my_submitted);
-          return (
-            <button
-              key={section.id}
-              type="button"
-              className={`exp-tab ${activeSection === section.id ? "exp-tab--active" : ""} ${locked ? "exp-tab--locked" : ""}`}
-              onClick={() => handleSectionSelect(section)}
-              title={locked ? "Click to see what remains before the assignment unlocks" : undefined}
-            >
-              {complete ? "✓ " : locked ? "🔒 " : ""}{section.label}
-            </button>
-          );
-        })}
-      </nav>
 
       {sectionError && <div className="alert alert--error section-completion__error" role="alert">{sectionError}</div>}
 
@@ -250,6 +288,11 @@ export default function ExperimentPage() {
           <section className="exp-section">
             <h2 className="exp-section__heading">Code Exercise</h2>
             <p className="exp-section__intro">Write and run Python code in your browser, then submit the output for validation. This section is complete only after a matching result has been saved.</p>
+            {isStudent && experiment.code_exercise_completed && (
+              <div className="alert alert--success" role="status">
+                ✓ Completed — a matching result has been saved for this exercise.
+              </div>
+            )}
             <CodeEditor experiment={experiment} onSubmitted={refreshExperiment} canSubmit={isStudent} />
           </section>
         )}
@@ -275,6 +318,7 @@ export default function ExperimentPage() {
             )}
           </section>
         )}
+      </div>
       </div>
     </div>
   );
