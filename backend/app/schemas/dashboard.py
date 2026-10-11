@@ -11,10 +11,18 @@ class StepStatus:
     completed = "completed"
 
 
+class SectionProgress(BaseModel):
+    """One configured section of an experiment and whether its completion is saved."""
+    key: str
+    completed: bool
+
+
 class ExperimentProgress(BaseModel):
     """A student's own progress, including manually tracked static sections."""
     experiment_id: uuid.UUID
     experiment_title: str
+    experiment_number: int = 0  # fixed experiment number (1-10)
+    has_assignment: bool = False
     pre_quiz: str  # StepStatus values
     code_exercise: str
     post_quiz: str
@@ -22,6 +30,8 @@ class ExperimentProgress(BaseModel):
     assignment_score: Optional[float] = None
     overall_status: str
     section_statuses: dict[str, str] = Field(default_factory=dict)
+    # Every configured section in the approved order, for the View Progress page.
+    sections: list[SectionProgress] = Field(default_factory=list)
 
 
 class InstructorExperimentProgress(BaseModel):

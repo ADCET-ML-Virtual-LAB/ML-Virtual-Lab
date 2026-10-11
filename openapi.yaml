@@ -299,6 +299,28 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
 
   # ---------------- QUIZZES (planned) ----------------
+  /experiments/{slug}/sections/{section_key}/complete:
+    post:
+      tags: [experiments]
+      summary: Save a student's Mark Completed for a manual section (students only)
+      description: |
+        Idempotent. `section_key` is one of overview, aim-objectives, theory, video,
+        guided-lab. The frontend must re-fetch `GET /experiments/{slug}` afterwards;
+        it must not show the tick itself.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: section_key
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Completion saved }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /experiments/{experiment_id}/quizzes:
     post:
       tags: [quizzes]
@@ -752,6 +774,19 @@ components:
               type: array
               items: { type: string }
               description: Steps still to complete, e.g. ["Pre-Quiz", "Code Exercise"]. Empty when unlocked.
+            section_completions:
+              type: object
+              additionalProperties: { type: boolean }
+              description: Student-only. Saved Mark Completed state per manual section key.
+            my_review_note:
+              type: string
+              description: |
+                Each assignment quiz in `quizzes` carries `my_review` (per question:
+                selected_option_id, correct_option_ids, is_correct) only for the
+                student who submitted it, and only after submission.
+            code_exercise_completed:
+              type: boolean
+              description: Student-only. True once a matching Code Exercise result has been saved.
 
     Quiz:
       type: object
@@ -881,11 +916,14 @@ components:
     ExperimentProgress:
       type: object
       description: |
-        One student's own progress through one experiment's steps (student dashboard).
-        The guided lab is practice only and is not a step.
+        One student's own progress through one experiment (View Progress and
+        Assignment Scores). `sections` lists every configured section in the
+        approved order with its saved completion.
       properties:
         experiment_id: { type: string, format: uuid }
         experiment_title: { type: string }
+        experiment_number: { type: integer, description: Fixed experiment number (1-10). }
+        has_assignment: { type: boolean }
         pre_quiz: { $ref: "#/components/schemas/StepStatus" }
         code_exercise: { $ref: "#/components/schemas/StepStatus" }
         post_quiz: { $ref: "#/components/schemas/StepStatus" }
@@ -893,10 +931,24 @@ components:
         assignment_score:
           type: number
           nullable: true
-          description: Only present once the assignment step is completed and reveal_policy allows it.
+          description: Percentage. Visible to the student immediately after submission.
         overall_status:
           $ref: "#/components/schemas/StepStatus"
-          description: completed only once pre-quiz, code exercise, post-quiz and assignment are all completed.
+          description: |
+            Ticks only. not_started = no section completed; in_progress = some but
+            not all; completed = every configured section completed.
+        section_statuses:
+          type: object
+          additionalProperties: { type: string }
+          description: Manual sections only (kept for compatibility).
+        sections:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string, example: pre-quiz }
+              completed: { type: boolean }
+            required: [key, completed]
       required:
         - experiment_id
         - experiment_title

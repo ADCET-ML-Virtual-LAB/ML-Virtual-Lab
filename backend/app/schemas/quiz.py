@@ -55,6 +55,18 @@ class QuestionCreate(BaseModel):
 
 # ── Quiz ──────────────────────────────────────────────────────────────────────
 
+class QuestionReview(BaseModel):
+    """A student's own graded answer for one question of a submitted assignment.
+
+    Only ever sent to the student who submitted it, and only after submission,
+    because it reveals the correct option(s).
+    """
+    question_id: uuid.UUID
+    selected_option_id: Optional[uuid.UUID] = None
+    correct_option_ids: list[uuid.UUID] = Field(default_factory=list)
+    is_correct: bool
+
+
 class QuizOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -70,6 +82,8 @@ class QuizOut(BaseModel):
     my_submitted: bool = False
     my_best_score: Optional[float] = None  # Pre-Quiz/Post-Quiz only
     my_assignment_score: Optional[float] = None  # Assignment only
+    # Assignment only, and only after this student has submitted it.
+    my_review: Optional[list[QuestionReview]] = None
 
 
 class QuizOutAdmin(BaseModel):

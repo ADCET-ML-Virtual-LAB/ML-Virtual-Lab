@@ -133,6 +133,8 @@ def test_student_progress_includes_manual_section_statuses(client, db):
     assert set(rows[0]) == {
         "experiment_id",
         "experiment_title",
+        "experiment_number",
+        "has_assignment",
         "pre_quiz",
         "code_exercise",
         "post_quiz",
@@ -140,6 +142,7 @@ def test_student_progress_includes_manual_section_statuses(client, db):
         "assignment_score",
         "overall_status",
         "section_statuses",
+        "sections",
     }
 
 

@@ -29,7 +29,12 @@ from app.schemas.experiment import (
     ExperimentUpdate,
 )
 from app.schemas.section_completion import SectionCompletionOut
-from app.services.progress import missing_assignment_prerequisites, student_quiz_status
+from app.services.progress import (
+    assignment_review,
+    is_code_exercise_completed,
+    missing_assignment_prerequisites,
+    student_quiz_status,
+)
 from app.services.section_tracking import (
     STATIC_SECTION_LABELS,
     get_section_completion_map,
@@ -68,6 +73,12 @@ def create_experiment(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_roles(UserRole.admin)),
 ):
+    # Experiment numbers are fixed (1-10) and each number can be used once.
+    if db.query(Experiment.id).filter(Experiment.order_index == payload.order_index).first():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Experiment number {payload.order_index} already exists",
+        )
     exp = Experiment(**payload.model_dump())
     db.add(exp)
     try:
@@ -98,12 +109,14 @@ def get_experiment(
     # Student-only saved quiz state: best score for pre/post, accepted score for assignment.
     if current_user.role == UserRole.student:
         detail.section_completions = get_section_completion_map(current_user.id, exp.id, db)
+        detail.code_exercise_completed = is_code_exercise_completed(current_user.id, exp, db)
         quizzes_by_id = {q.id: q for q in exp.quizzes}
         for quiz_out in detail.quizzes:
             quiz = quizzes_by_id[quiz_out.id]
             quiz_out.my_submitted, saved_score = student_quiz_status(current_user.id, quiz, db)
             if quiz.quiz_type == QuizType.assignment:
                 quiz_out.my_assignment_score = saved_score
+                quiz_out.my_review = assignment_review(current_user.id, quiz, db)
             else:
                 quiz_out.my_best_score = saved_score
 

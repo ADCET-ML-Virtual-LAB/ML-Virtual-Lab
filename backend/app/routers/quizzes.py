@@ -36,6 +36,7 @@ from app.schemas.quiz import (
     QuizAnswerResult,
 )
 from app.services.progress import (
+    assignment_review,
     missing_assignment_prerequisites,
     student_quiz_status,
 )
@@ -132,6 +133,8 @@ def get_quiz(
     if quiz.quiz_type == QuizType.assignment:
         # Assignment scores are immediately visible to the submitting student.
         out.my_assignment_score = saved_score
+        # Correct answers are revealed only after this student has submitted.
+        out.my_review = assignment_review(current_user.id, quiz, db)
     else:
         out.my_best_score = saved_score
     return out

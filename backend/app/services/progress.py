@@ -14,7 +14,8 @@ from app.models.code_submission import CodeSubmission, SubmissionStatus
 from app.models.experiment import Experiment
 from app.models.quiz import Quiz, QuizSubmission, QuizType, RevealPolicy
 from app.models.student_quiz_progress import StudentQuizProgress
-from app.schemas.dashboard import ExperimentProgress
+from app.schemas.dashboard import ExperimentProgress, SectionProgress
+from app.schemas.quiz import QuestionReview
 from app.services.section_tracking import (
     STATIC_SECTION_LABELS,
     get_completed_section_keys,
@@ -23,6 +24,19 @@ from app.services.section_tracking import (
 _NS = "not_started"
 _IP = "in_progress"
 _CO = "completed"
+
+
+def is_code_exercise_completed(
+    student_id: uuid.UUID, exp: Experiment, db: Session
+) -> bool:
+    """True when the experiment has a code exercise and a matching result is saved."""
+    if exp.evaluation_spec is None:
+        return False
+    return db.query(CodeSubmission.id).filter(
+        CodeSubmission.student_id == student_id,
+        CodeSubmission.experiment_id == exp.id,
+        CodeSubmission.status == SubmissionStatus.matched,
+    ).first() is not None
 
 
 def derive_experiment_progress(
@@ -61,22 +75,9 @@ def derive_experiment_progress(
             ).first() is not None
             pre_quiz_status = _CO if has_sub else _NS
 
-        # Code exercise: once any valid matching result is saved, it stays complete.
-        code_status = _NS
-        if exp.evaluation_spec is not None:
-            has_match = db.query(CodeSubmission.id).filter(
-                CodeSubmission.student_id == student_id,
-                CodeSubmission.experiment_id == exp.id,
-                CodeSubmission.status == SubmissionStatus.matched,
-            ).first() is not None
-            if has_match:
-                code_status = _CO
-            else:
-                has_attempt = db.query(CodeSubmission.id).filter(
-                    CodeSubmission.student_id == student_id,
-                    CodeSubmission.experiment_id == exp.id,
-                ).first() is not None
-                code_status = _IP if has_attempt else _NS
+        # Code exercise: ticked only when a matching result is saved. A failed or
+        # mismatched attempt does not count as progress (only ticks count).
+        code_status = _CO if is_code_exercise_completed(student_id, exp, db) else _NS
 
         # Post-quiz: the single best-score record means at least one submission occurred.
         post_q = quizzes_by_type.get(QuizType.post.value)
@@ -107,25 +108,44 @@ def derive_experiment_progress(
                 if student_view or score_is_revealed(asgn_q):
                     assignment_score = latest_sub.score
 
-        # Every configured static section is required. Activity sections are
-        # included only when that activity exists for the experiment.
-        trackable = list(section_statuses.values())
+        # Every configured section in the approved order. Static sections are
+        # always configured; quiz, code and assignment sections only when they
+        # exist for this experiment.
+        sections: list[tuple[str, str]] = [
+            ("overview", section_statuses["overview"]),
+            ("aim-objectives", section_statuses["aim-objectives"]),
+        ]
         if pre_q:
-            trackable.append(pre_quiz_status)
+            sections.append(("pre-quiz", pre_quiz_status))
+        sections += [
+            ("video", section_statuses["video"]),
+            ("theory", section_statuses["theory"]),
+            ("guided-lab", section_statuses["guided-lab"]),
+        ]
         if exp.evaluation_spec is not None:
-            trackable.append(code_status)
+            sections.append(("code-exercise", code_status))
         if post_q:
-            trackable.append(post_quiz_status)
+            sections.append(("post-quiz", post_quiz_status))
         if asgn_q:
-            trackable.append(assignment_status)
+            sections.append(("assignment", assignment_status))
+        trackable = [status for _, status in sections]
 
-        overall = _CO if trackable and all(s == _CO for s in trackable) else (
-            _IP if any(s != _NS for s in trackable) else _NS
-        )
+        # Decided status rule (ticks only): none ticked -> not started; every
+        # configured section ticked (including the assignment) -> completed;
+        # anything in between -> in progress.
+        done = sum(1 for s in trackable if s == _CO)
+        if done == 0:
+            overall = _NS
+        elif done == len(trackable):
+            overall = _CO
+        else:
+            overall = _IP
 
         results.append(ExperimentProgress(
             experiment_id=exp.id,
             experiment_title=exp.title,
+            experiment_number=exp.order_index,
+            has_assignment=asgn_q is not None,
             pre_quiz=pre_quiz_status,
             code_exercise=code_status,
             post_quiz=post_quiz_status,
@@ -133,6 +153,10 @@ def derive_experiment_progress(
             assignment_score=assignment_score,
             overall_status=overall,
             section_statuses=section_statuses,
+            sections=[
+                SectionProgress(key=key, completed=status == _CO)
+                for key, status in sections
+            ],
         ))
 
     return results
@@ -162,13 +186,7 @@ def missing_assignment_prerequisites(
         StudentQuizProgress.student_id == student_id,
         StudentQuizProgress.quiz_id == post_q.id,
     ).first() is not None
-    code_matched = False
-    if exp.evaluation_spec is not None:
-        code_matched = db.query(CodeSubmission.id).filter(
-            CodeSubmission.student_id == student_id,
-            CodeSubmission.experiment_id == exp.id,
-            CodeSubmission.status == SubmissionStatus.matched,
-        ).first() is not None
+    code_matched = is_code_exercise_completed(student_id, exp, db)
 
     # The order reflects the existing experiment flow. Change it only together
     # with the approved section ordering in the student workspace.
@@ -227,3 +245,33 @@ def student_quiz_status(
         QuizSubmission.quiz_id == quiz.id,
     ).first()
     return (submission is not None, submission.score if submission is not None else None)
+
+
+def assignment_review(
+    student_id: uuid.UUID, quiz: Quiz, db: Session
+) -> list[QuestionReview] | None:
+    """The student's own graded answers for a submitted assignment, else None.
+
+    Returns None for pre/post quizzes and for an assignment this student has not
+    submitted, so correct answers are never exposed before submission.
+    """
+    if quiz.quiz_type != QuizType.assignment:
+        return None
+    submission = db.query(QuizSubmission).filter(
+        QuizSubmission.student_id == student_id,
+        QuizSubmission.quiz_id == quiz.id,
+    ).first()
+    if submission is None:
+        return None
+
+    answers = {a.question_id: a for a in submission.answers}
+    review: list[QuestionReview] = []
+    for question in sorted(quiz.questions, key=lambda q: q.order_index):
+        answer = answers.get(question.id)
+        review.append(QuestionReview(
+            question_id=question.id,
+            selected_option_id=answer.selected_option_id if answer else None,
+            correct_option_ids=[o.id for o in question.options if o.is_correct],
+            is_correct=bool(answer and answer.is_correct),
+        ))
+    return review

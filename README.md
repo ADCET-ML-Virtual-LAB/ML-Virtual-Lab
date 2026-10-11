@@ -95,16 +95,19 @@ The `seed_data.py` script creates default users for testing. Use these credentia
 *Note: All students are created with `must_change_password=False` by default in the seeder so you can test endpoints immediately without being forced to change the password first.*
 
 ## Database schema
-14 tables, grouped by module — see `backend/app/models/`:
-- **Auth**: `users`, `refresh_tokens`
-- **Batches**: `batches`, `enrollments`, `instructor_assignments`, `roster_entries`
+Tables, grouped by module — see `backend/app/models/` (the source of truth):
+- **Auth / users**: `users`
+- **Batches**: `batches`, `enrollments`, `instructor_assignments`
 - **Content**: `experiments`, `experiment_evaluation_specs`
-- **Quiz engine**: `quizzes`, `questions`, `options`, `quiz_submissions`, `quiz_answers`
+- **Quiz engine**: `quizzes`, `questions`, `options`
+- **Assignment submissions (one per student)**: `quiz_submissions`, `quiz_answers`
+- **Pre/post quiz best score only**: `student_quiz_progress`
+- **Manual section ticks**: `section_completions`
 - **Code exercises**: `code_submissions`
 
-All tables use UUID primary keys and `created_at`/`updated_at` timestamps
-(via `models/common.py` mixins). Verified importable with SQLAlchemy — run
-`python init_db.py` against a real Postgres to create them.
+All tables use UUID primary keys. There are no refresh tokens (long-lived access
+tokens are used). There is no automated migration tool yet: new tables are added
+with `init_db.py` or a one-off script in `backend/scripts/`.
 
 ## Suggested issues (one per teammate to start)
 See `ISSUES.md` for the four starter issues, written ready to paste into

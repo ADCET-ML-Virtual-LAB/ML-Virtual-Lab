@@ -38,6 +38,8 @@ class ExperimentDetailOut(ExperimentOut):
     assignment_missing_steps: list[str] = Field(default_factory=list)
     # Student-only status map sourced from saved SectionCompletion rows.
     section_completions: dict[str, bool] = Field(default_factory=dict)
+    # Student-only: true once a matching Code Exercise result has been saved.
+    code_exercise_completed: bool = False
 
 
 class ExperimentCreate(BaseModel):
@@ -51,7 +53,8 @@ class ExperimentCreate(BaseModel):
     lab_config: Optional[Any] = None
     starter_code: Optional[str] = None
     allowed_imports: Optional[list[str]] = None
-    order_index: int = 0
+    # Experiments are fixed (1-10); the number is chosen once at creation.
+    order_index: int = Field(ge=1, le=10)
     is_published: bool = False
 
 
@@ -65,7 +68,6 @@ class ExperimentUpdate(BaseModel):
     lab_config: Optional[Any] = None
     starter_code: Optional[str] = None
     allowed_imports: Optional[list[str]] = None
-    order_index: Optional[int] = None
     is_published: Optional[bool] = None
 
 

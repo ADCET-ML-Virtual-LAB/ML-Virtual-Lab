@@ -128,10 +128,12 @@ cd frontend && npm install && npm run dev
 ```
 
 ## Testing status
-No automated test suite exists yet. New endpoints should at minimum be
-exercised manually via `/docs` (Swagger UI) per their issue's "Acceptance
-criteria" checklist before a PR is opened. Adding pytest + a test DB is
-open follow-up work, not yet scheduled.
+A pytest suite lives in `backend/tests` (SQLite test DB via `conftest.py`).
+Run it from `backend` with the virtual environment active: `python -m pytest -q`.
+It covers section completion, quiz best-score rules, assignment locking, status
+rules, role access and the instructor dashboard. New endpoints should add tests
+there and also be checked manually via `/docs`. The frontend has no automated
+tests yet; `npm run build` is the minimum check.
 
 ## What's implemented vs. stub (keep this section updated)
 - **Done**: auth (login/me/change-password), batches (create/list/get,
@@ -164,3 +166,24 @@ open follow-up work, not yet scheduled.
   `missing_assignment_prerequisites` in `app/services/progress.py`). The
   server enforces this; the UI only mirrors it. A step the experiment does not
   have (no quiz, or no expected result) is skipped.
+- **Experiments are fixed (1-10)**: `order_index` is the experiment number. It must be
+  1-10, unique, and cannot be changed after creation (the update schema ignores it).
+- **Experiment status (ticks only)**: Not started = no section ticked in the database;
+  In progress = at least one ticked but not all; Completed = every configured section
+  ticked, including the assignment. A section is ticked when: manual sections have a
+  saved `SectionCompletion`; a quiz is submitted at least once; the Code Exercise has a
+  saved *matched* result (failed/mismatched attempts are not progress); the assignment
+  has an accepted submission.
+- **Assignment lock check**: the student UI re-fetches the experiment from the backend
+  every time the Assignment is clicked; the server also re-checks on view and submit.
+- **Overall progress (View Progress)**: completed sections / all configured sections across
+  the published experiments, as a whole-number percentage (100% only when every section is
+  complete). Per experiment only the status is shown (Not Attempted / In Progress /
+  Completed), plus the list of sections with an empty/filled circle.
+- **Assignment Scores page**: exactly three columns (Experiment No., Experiment Name,
+  Assignment Score). Cell = score %, "Not Submitted", or "Assignment not Available" when
+  the experiment has no assignment.
+- **Submitted assignment review**: after submitting, the student can reopen the assignment
+  and see each question with the correct answer, their own answer and Correct/Incorrect.
+  `my_review` is returned only to the submitting student and only after submission.
+
