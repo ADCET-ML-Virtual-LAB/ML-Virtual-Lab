@@ -138,7 +138,16 @@ export default function ExperimentPage() {
       <nav className="exp-page__tabs" aria-label="Experiment sections">
         {SECTIONS.map((section) => {
           const locked = section.id === "assignment" && isStudent && experiment.assignment_locked;
-          const complete = section.completionKey && completions[section.completionKey];
+          const sectionQuiz = section.id === "pre-quiz"
+            ? preQuiz
+            : section.id === "post-quiz"
+              ? postQuiz
+              : section.id === "assignment"
+                ? assignment
+                : null;
+          const complete = section.completionKey
+            ? Boolean(completions[section.completionKey])
+            : Boolean(sectionQuiz?.my_submitted);
           return (
             <button
               key={section.id}
@@ -188,7 +197,7 @@ export default function ExperimentPage() {
           <section className="exp-section">
             <h2 className="exp-section__heading">Pre-Quiz</h2>
             {preQuiz ? (
-              <QuizPanel quiz={preQuiz} quizType="pre" onComplete={refreshExperiment} readOnly={!isStudent} />
+              <QuizPanel quiz={preQuiz} quizType="pre" experimentNumber={experiment.order_index} experimentTitle={experiment.title} onComplete={refreshExperiment} readOnly={!isStudent} />
             ) : (
               <p className="exp-section__placeholder">No pre-quiz available for this experiment yet.</p>
             )}
@@ -249,7 +258,7 @@ export default function ExperimentPage() {
           <section className="exp-section">
             <h2 className="exp-section__heading">Post-Quiz</h2>
             {postQuiz ? (
-              <QuizPanel quiz={postQuiz} quizType="post" onComplete={refreshExperiment} readOnly={!isStudent} />
+              <QuizPanel quiz={postQuiz} quizType="post" experimentNumber={experiment.order_index} experimentTitle={experiment.title} onComplete={refreshExperiment} readOnly={!isStudent} />
             ) : (
               <p className="exp-section__placeholder">No post-quiz available for this experiment yet.</p>
             )}

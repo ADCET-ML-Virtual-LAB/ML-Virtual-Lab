@@ -93,3 +93,112 @@
   font-size: 0.9rem;
   color: var(--color-text-muted);
 }
+
+
+/* Introduction screen for student Pre-Quiz and Post-Quiz */
+.quiz-intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 680px;
+  padding: clamp(1.1rem, 3vw, 2rem);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) * 1.25);
+  background: var(--color-surface);
+}
+
+.quiz-intro__eyebrow {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.quiz-intro__title {
+  margin: 0;
+  font-size: clamp(1.2rem, 2vw, 1.55rem);
+  line-height: 1.35;
+}
+
+.quiz-intro__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.quiz-intro__meta strong {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.quiz-intro__score {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.25rem 0;
+}
+
+.quiz-intro__score-label {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.quiz-intro__score-value {
+  font-size: clamp(1.8rem, 4vw, 2.35rem);
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.quiz-intro__not-attempted {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.quiz-intro__description {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.quiz-intro__start {
+  align-self: flex-start;
+  margin-top: 0.4rem;
+}
+
+.quiz-result--submitted {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.quiz-result__scores {
+  display: flex;
+  flex: 1 1 280px;
+  flex-wrap: wrap;
+  gap: 1.25rem 2rem;
+}
+
+.quiz-result__score-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 110px;
+}
+
+.quiz-result__score-item span {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.quiz-result__score-item strong {
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
