@@ -3,8 +3,8 @@ Dashboards router — Module 7 (Instructor) + Module 8 (Student).
 
 Endpoints:
   GET  /dashboards/student              own progress across experiments (students only)
-  GET  /dashboards/instructor           batch students' progress (admin/instructor)
-  GET  /dashboards/instructor/export    same data as CSV (admin/instructor)
+  GET  /dashboards/instructor           batch students' progress (instructors only)
+  GET  /dashboards/instructor/export    same data as CSV (instructors only)
 """
 import csv
 import io
@@ -34,8 +34,7 @@ def _assert_batch_access(batch_id: uuid.UUID, user: User, db: Session) -> Batch:
     batch = db.get(Batch, batch_id)
     if batch is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Batch not found")
-    if user.role == UserRole.admin:
-        return batch
+    # Instructor console data is for instructors only; admins have no access here.
     assigned = (
         db.query(InstructorAssignment)
         .filter(
@@ -81,7 +80,7 @@ def student_dashboard(
 def instructor_dashboard(
     batch_id: uuid.UUID = Query(...),
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
+    user: User = Depends(require_roles(UserRole.instructor)),
 ):
     """Per-student overall status and assignment status/score for all students in a batch."""
     _assert_batch_access(batch_id, user, db)
@@ -112,7 +111,7 @@ def instructor_dashboard(
 def export_instructor_dashboard(
     batch_id: uuid.UUID = Query(...),
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
+    user: User = Depends(require_roles(UserRole.instructor)),
 ):
     """Assignment status and score per experiment, as a downloadable CSV."""
     batch = _assert_batch_access(batch_id, user, db)

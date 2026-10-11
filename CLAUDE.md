@@ -147,9 +147,18 @@ tests yet; `npm run build` is the minimum check.
 - **Roles**: student, instructor, admin. Students take quizzes, submit code and
   see their own progress. Instructors and admins only *view*: they cannot submit
   quizzes or code, and `/dashboards/student` is students-only (the frontend
-  hides "My Progress" and redirects them to `/instructor`).
-- **Instructor scope**: an instructor sees only their assigned batches
-  (`GET /batches`, `GET /batches/{id}`, dashboard, CSV). Admins see all.
+  hides "My Progress").
+- **Instructor scope**: the instructor console lives under `/instructor/*` and is
+  for instructors only (admins and students get 403). An instructor reaches only
+  their own batches. **One instructor per batch** is enforced (unique `batch_id`
+  on `instructor_assignments`; assigning a second instructor returns 409), while
+  one instructor can have several batches. Admins still use `/batches` for
+  management.
+- **Instructor views**: published experiments only; read-only content with answer
+  keys; Students Status (Not Attempted / In Progress / Completed by the student
+  tick rule); Assignment Status with saved percentage immediately (reveal policy
+  ignored) and per-student submission review; CSV covers only the open
+  experiment or assignment.
 - **What instructors see**: per student and experiment, an overall badge (Not
   started / Ongoing / Completed) plus the assignment status and score. The CSV
   has only the assignment status and score. Pre/post quiz results never go to
@@ -187,3 +196,9 @@ tests yet; `npm run build` is the minimum check.
   and see each question with the correct answer, their own answer and Correct/Incorrect.
   `my_review` is returned only to the submitting student and only after submission.
 
+
+## Known gaps (deferred to the admin phase)
+- `GET /quizzes/{quiz_id}` still returns answer keys to any instructor or admin, with no
+  batch check and no published-experiment check. The student UI does not call it and the
+  instructor console does not use it (it uses `/instructor/*`). Students never receive
+  `is_correct` from it. Decide what admins may see, then restrict or remove it.

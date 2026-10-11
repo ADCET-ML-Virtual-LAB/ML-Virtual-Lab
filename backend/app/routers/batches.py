@@ -184,19 +184,26 @@ def assign_instructor_to_batch(
     if instructor is None or instructor.role != UserRole.instructor:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Instructor not found")
 
-    existing = (
-        db.query(InstructorAssignment)
-        .filter(
-            InstructorAssignment.instructor_id == payload.instructor_id,
-            InstructorAssignment.batch_id == batch_id,
+    # One instructor per batch: a batch that already has an instructor is never
+    # silently reassigned or given a second one.
+    current = db.query(InstructorAssignment).filter(InstructorAssignment.batch_id == batch_id).first()
+    if current is not None:
+        if current.instructor_id == payload.instructor_id:
+            return {"detail": "Already assigned"}
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This batch already has an instructor. A batch can have only one instructor.",
         )
-        .first()
-    )
-    if existing:
-        return {"detail": "Already assigned"}
 
     db.add(InstructorAssignment(instructor_id=payload.instructor_id, batch_id=batch_id))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This batch already has an instructor. A batch can have only one instructor.",
+        )
     return {"detail": "Instructor assigned"}
 
 

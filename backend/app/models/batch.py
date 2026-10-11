@@ -33,14 +33,19 @@ class Enrollment(Base, UUIDPKMixin):
 
 
 class InstructorAssignment(Base, UUIDPKMixin):
-    """Instructor <-> Batch. An instructor's dashboard is scoped to these batches only."""
+    """Instructor <-> Batch (one instructor per batch). An instructor's console is scoped to these batches only."""
     __tablename__ = "instructor_assignments"
 
     instructor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     batch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("batches.id", ondelete="CASCADE"), nullable=False)
     assigned_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    __table_args__ = (UniqueConstraint("instructor_id", "batch_id", name="uq_instructor_batch"),)
+    # One instructor per batch (decided design): batch_id is unique. An instructor
+    # may still be assigned to several different batches.
+    __table_args__ = (
+        UniqueConstraint("instructor_id", "batch_id", name="uq_instructor_batch"),
+        UniqueConstraint("batch_id", name="uq_instructor_assignment_batch"),
+    )
 
     instructor = relationship("User", back_populates="instructor_assignments", foreign_keys=[instructor_id])
     batch = relationship("Batch", back_populates="instructor_assignments")

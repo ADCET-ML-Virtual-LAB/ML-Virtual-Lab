@@ -217,7 +217,7 @@ paths:
               schema: { $ref: "#/components/schemas/StudentUploadResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
-          description: Not Admin, and not an instructor assigned to this batch
+          description: Not an instructor, or not the instructor assigned to this batch (admins have no access)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -501,7 +501,7 @@ paths:
   /dashboards/instructor:
     get:
       tags: [dashboards]
-      summary: Per-student, per-experiment progress and assignment scores for one batch
+      summary: (Legacy, instructors only) per-student progress and assignment scores for one batch
       description: |
         An instructor sees, per student and experiment, only the overall status
         (`not_started | in_progress | completed`, shown as Not started / Ongoing /
@@ -526,7 +526,7 @@ paths:
                 items: { $ref: "#/components/schemas/InstructorStudentProgress" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
-          description: Not Admin, and not an instructor assigned to this batch
+          description: Not an instructor, or not the instructor assigned to this batch (admins have no access)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -555,6 +555,123 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  # ── Instructor console (instructors only; admins and students get 403) ──────
+  /instructor/batches:
+    get:
+      tags: [instructor]
+      summary: The instructor's own batches (id, name, academic_year; no student count)
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /instructor/batches/{batch_id}:
+    get:
+      tags: [instructor]
+      summary: Batch information and roster (URN and name only)
+      parameters:
+        - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "name, academic_year, instructor_name, students[{id, urn, full_name}]" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /instructor/experiments:
+    get:
+      tags: [instructor]
+      summary: Published experiments (number, title, slug) in number order
+      responses:
+        "200": { description: OK }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /instructor/experiments/{experiment_id}:
+    get:
+      tags: [instructor]
+      summary: Read-only experiment content with answer keys
+      description: |
+        Overview, aim, objective, theory (`notes`), video, and the pre-quiz, post-quiz
+        and assignment with `is_correct` on every option. No guided lab or code exercise.
+      parameters:
+        - { name: experiment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: OK }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /instructor/experiments/{experiment_id}/assignment:
+    get:
+      tags: [instructor]
+      summary: Experiment number and title plus the assignment questions with correct answers
+      parameters:
+        - { name: experiment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: OK; `assignment` is null when the experiment has none }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /instructor/batches/{batch_id}/experiments/{experiment_id}/status:
+    get:
+      tags: [instructor]
+      summary: Students Status table for one experiment
+      description: Per student `not_started | in_progress | completed` (shown as Not Attempted / In Progress / Completed), using the student tick rule. No section detail.
+      parameters:
+        - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: experiment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: OK }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /instructor/batches/{batch_id}/experiments/{experiment_id}/status/export:
+    get:
+      tags: [instructor]
+      summary: CSV of the open experiment's Students Status only
+      parameters:
+        - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: experiment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "CSV: Batch, Academic Year, Experiment No., Experiment Title, URN, Student Name, Status" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /instructor/batches/{batch_id}/experiments/{experiment_id}/assignment-status:
+    get:
+      tags: [instructor]
+      summary: Assignment Status table (saved percentage, or not submitted)
+      description: Scores are shown immediately; the quiz reveal policy is ignored. Pre/post scores are never returned.
+      parameters:
+        - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: experiment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "has_assignment, rows[{student_id, urn, full_name, submitted, score}]" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /instructor/batches/{batch_id}/experiments/{experiment_id}/assignment-status/export:
+    get:
+      tags: [instructor]
+      summary: CSV of the open assignment's scores only
+      parameters:
+        - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: experiment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "CSV: Batch, Academic Year, Experiment No., Experiment Title, URN, Student Name, Marks (%) (value or Not Submitted)" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /instructor/batches/{batch_id}/experiments/{experiment_id}/assignment-status/{student_id}:
+    get:
+      tags: [instructor]
+      summary: One student's submitted assignment with answer key and correct/incorrect marks
+      parameters:
+        - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: experiment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: student_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: "experiment_number, experiment_title, student, score, questions[{question_text, options, selected_option_id, is_correct}]" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: Not submitted, student not in this batch, or no assignment }
 
 components:
   securitySchemes:
