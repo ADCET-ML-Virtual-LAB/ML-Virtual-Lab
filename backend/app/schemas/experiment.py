@@ -4,6 +4,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.quiz import QuizOut
+
 
 class ExperimentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -20,6 +22,19 @@ class ExperimentOut(BaseModel):
     allowed_imports: Optional[list[str]] = None
     order_index: int
     is_published: bool
+
+
+class ExperimentDetailOut(ExperimentOut):
+    """
+    Single-experiment view: the experiment plus its quizzes.
+
+    For a student whose assignment is still locked, the assignment quiz comes back
+    with an EMPTY `questions` list and `assignment_locked` is true, so the assignment
+    cannot even be viewed until the earlier steps are completed.
+    """
+    quizzes: list[QuizOut] = []
+    assignment_locked: bool = False
+    assignment_missing_steps: list[str] = []  # e.g. ["Pre-Quiz", "Code Exercise"]
 
 
 class ExperimentCreate(BaseModel):

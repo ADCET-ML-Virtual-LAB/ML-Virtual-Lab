@@ -47,6 +47,22 @@
   color: var(--color-primary);
 }
 
+.exp-tab:disabled,
+.exp-tab--locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.exp-tab:disabled:hover {
+  color: var(--color-text-muted);
+}
+
+.exp-page__lock-note {
+  margin: 0 0 var(--space-3);
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
 .exp-tab--active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);

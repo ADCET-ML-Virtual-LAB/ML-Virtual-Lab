@@ -6,14 +6,12 @@ const STATUS_LABEL = {
   not_started: "Not started",
   in_progress: "In progress",
   completed: "Completed",
-  not_tracked: "—",
 };
 
 const STATUS_BADGE = {
   not_started: "badge--gray",
   in_progress: "badge--yellow",
   completed: "badge--green",
-  not_tracked: "badge--gray",
 };
 
 export default function StudentDashboard() {
@@ -60,7 +58,6 @@ export default function StudentDashboard() {
 
             <div className="progress-card__steps">
               <ProgressStep label="Pre-Quiz" status={exp.pre_quiz} />
-              <ProgressStep label="Guided Lab" status={exp.guided_lab} />
               <ProgressStep label="Code Exercise" status={exp.code_exercise} />
               <ProgressStep label="Post-Quiz" status={exp.post_quiz} />
               <ProgressStep
@@ -81,13 +78,11 @@ function ProgressStep({ label, status, score }) {
     not_started: "○",
     in_progress: "◑",
     completed: "●",
-    not_tracked: "—",
   };
   const colors = {
     not_started: "var(--color-text-muted)",
     in_progress: "var(--color-warning)",
     completed: "var(--color-success)",
-    not_tracked: "var(--color-border)",
   };
 
   return (

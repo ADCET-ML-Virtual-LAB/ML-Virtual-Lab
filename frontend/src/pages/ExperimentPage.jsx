@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { experimentsApi } from "../api/experiments.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import QuizPanel from "../components/QuizPanel.jsx";
 import GuidedLab from "../components/GuidedLab.jsx";
 import CodeEditor from "../components/CodeEditor.jsx";
@@ -19,6 +20,8 @@ const SECTIONS = [
 
 export default function ExperimentPage() {
   const { slug } = useParams();
+  const { user } = useAuth();
+  const isStudent = user?.role === "student";
   const [experiment, setExperiment] = useState(null);
   const [activeSection, setActiveSection] = useState("aim");
   const [loading, setLoading] = useState(true);
@@ -32,6 +35,14 @@ export default function ExperimentPage() {
       .catch(() => setError("Experiment not found or you don't have access."))
       .finally(() => setLoading(false));
   }, [slug]);
+
+  // Silent re-fetch after a quiz or code submission, so the Assignment tab unlocks as soon as the last step is done.
+  function refreshExperiment() {
+    experimentsApi
+      .get(slug)
+      .then(setExperiment)
+      .catch(() => {});
+  }
 
   if (loading) return <div className="page-loading">Loading experiment…</div>;
   if (error || !experiment) {
@@ -57,16 +68,32 @@ export default function ExperimentPage() {
 
       {/* Section tabs */}
       <nav className="exp-page__tabs">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            className={`exp-tab ${activeSection === s.id ? "exp-tab--active" : ""}`}
-            onClick={() => setActiveSection(s.id)}
-          >
-            {s.label}
-          </button>
-        ))}
+        {SECTIONS.map((s) => {
+          // A locked assignment cannot be opened at all.
+          const locked = s.id === "assignment" && experiment.assignment_locked;
+          return (
+            <button
+              key={s.id}
+              className={`exp-tab ${activeSection === s.id ? "exp-tab--active" : ""} ${locked ? "exp-tab--locked" : ""}`}
+              onClick={() => setActiveSection(s.id)}
+              disabled={locked}
+              title={locked ? "Locked: complete the earlier steps first" : undefined}
+            >
+              {locked ? `🔒 ${s.label}` : s.label}
+            </button>
+          );
+        })}
       </nav>
+
+      {experiment.assignment_locked && (
+        <p className="exp-page__lock-note">
+          🔒 The assignment unlocks after you complete:{" "}
+          {experiment.assignment_missing_steps
+            .map((step) => (step === "Code Exercise" ? "Code Exercise (output must match the expected result)" : step))
+            .join(", ")}
+          .
+        </p>
+      )}
 
       <div className="exp-page__content">
 
@@ -85,7 +112,7 @@ export default function ExperimentPage() {
           <section className="exp-section">
             <h2 className="exp-section__heading">Pre-Quiz</h2>
             {preQuiz ? (
-              <QuizPanel quiz={preQuiz} quizType="pre" />
+              <QuizPanel quiz={preQuiz} quizType="pre" onComplete={refreshExperiment} readOnly={!isStudent} />
             ) : (
               <p className="exp-section__placeholder">No pre-quiz available for this experiment yet.</p>
             )}
@@ -148,7 +175,7 @@ export default function ExperimentPage() {
               browser (via Pyodide), then <strong>Submit for feedback</strong> to see how your
               output compares to the expected result.
             </p>
-            <CodeEditor experiment={experiment} />
+            <CodeEditor experiment={experiment} onSubmitted={refreshExperiment} canSubmit={isStudent} />
           </section>
         )}
 
@@ -157,7 +184,7 @@ export default function ExperimentPage() {
           <section className="exp-section">
             <h2 className="exp-section__heading">Post-Quiz</h2>
             {postQuiz ? (
-              <QuizPanel quiz={postQuiz} quizType="post" />
+              <QuizPanel quiz={postQuiz} quizType="post" onComplete={refreshExperiment} readOnly={!isStudent} />
             ) : (
               <p className="exp-section__placeholder">No post-quiz available for this experiment yet.</p>
             )}
@@ -165,11 +192,11 @@ export default function ExperimentPage() {
         )}
 
         {/* ── Assignment ── */}
-        {activeSection === "assignment" && (
+        {activeSection === "assignment" && !experiment.assignment_locked && (
           <section className="exp-section">
             <h2 className="exp-section__heading">Assignment</h2>
             {assignment ? (
-              <QuizPanel quiz={assignment} quizType="assignment" />
+              <QuizPanel quiz={assignment} quizType="assignment" onComplete={refreshExperiment} readOnly={!isStudent} />
             ) : (
               <p className="exp-section__placeholder">No assignment available for this experiment yet.</p>
             )}

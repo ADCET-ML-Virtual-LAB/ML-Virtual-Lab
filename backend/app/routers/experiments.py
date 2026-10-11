@@ -18,13 +18,16 @@ from app.core.deps import get_current_active_user, require_roles
 from app.database import get_db
 from app.models import User
 from app.models.experiment import Experiment, ExperimentEvaluationSpec
+from app.models.quiz import QuizType
 from app.models.user import UserRole
 from app.schemas.experiment import (
     EvalSpecCreate,
     ExperimentCreate,
+    ExperimentDetailOut,
     ExperimentOut,
     ExperimentUpdate,
 )
+from app.services.progress import missing_assignment_prerequisites, quiz_attempt_summary
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 
@@ -72,7 +75,7 @@ def create_experiment(
 
 # ── Get one ──────────────────────────────────────────────────────────────────
 
-@router.get("/{slug}", response_model=ExperimentOut)
+@router.get("/{slug}", response_model=ExperimentDetailOut)
 def get_experiment(
     slug: str,
     db: Session = Depends(get_db),
@@ -82,7 +85,28 @@ def get_experiment(
     # Students may only view published experiments
     if current_user.role == UserRole.student and not exp.is_published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Experiment not found")
-    return exp
+
+    # Copy into the response model first; the withholding below changes only this copy, never the DB rows.
+    detail = ExperimentDetailOut.model_validate(exp)
+
+    # Student only: attempts so far and the best score they may see (instructors never get these).
+    if current_user.role == UserRole.student:
+        quizzes_by_id = {q.id: q for q in exp.quizzes}
+        for quiz_out in detail.quizzes:
+            quiz_out.my_attempts, quiz_out.my_best_score = quiz_attempt_summary(
+                current_user.id, quizzes_by_id[quiz_out.id], db
+            )
+
+    # Assignment lock (students only): until the earlier steps are done the assignment is hidden completely.
+    if current_user.role == UserRole.student and any(q.quiz_type == QuizType.assignment for q in exp.quizzes):
+        missing = missing_assignment_prerequisites(current_user.id, exp, db)
+        if missing:
+            detail.assignment_locked = True
+            detail.assignment_missing_steps = missing
+            for quiz in detail.quizzes:
+                if quiz.quiz_type == QuizType.assignment:
+                    quiz.questions = []
+    return detail
 
 
 # ── Update ───────────────────────────────────────────────────────────────────

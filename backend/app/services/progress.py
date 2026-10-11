@@ -8,6 +8,7 @@ table — it's derived on read from QuizSubmission and CodeSubmission rows.
 import uuid
 from typing import Sequence
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.code_submission import CodeSubmission, SubmissionStatus
@@ -20,7 +21,6 @@ from datetime import datetime, timezone
 _NS = "not_started"
 _IP = "in_progress"
 _CO = "completed"
-_NT = "not_tracked"
 
 
 def derive_experiment_progress(
@@ -48,9 +48,6 @@ def derive_experiment_progress(
                 QuizSubmission.quiz_id == pre_q.id,
             ).first()
             pre_quiz_status = _CO if has_sub else _NS
-
-        # ── Guided lab ───────────────────────────────────────────────────────
-        guided_lab_status = _NT  # no ping endpoint yet (see CLAUDE.md)
 
         # ── Code exercise ─────────────────────────────────────────────────────
         code_status = _NS
@@ -88,11 +85,8 @@ def derive_experiment_progress(
             if latest_sub:
                 assignment_status = _CO
                 # Reveal score based on policy
-                if asgn_q.reveal_policy == RevealPolicy.immediate:
+                if score_is_revealed(asgn_q):
                     assignment_score = latest_sub.score
-                elif asgn_q.reveal_policy == RevealPolicy.after_deadline:
-                    if asgn_q.deadline is None or datetime.now(timezone.utc) >= asgn_q.deadline:
-                        assignment_score = latest_sub.score
 
         # ── Overall status ────────────────────────────────────────────────────
         trackable = [pre_quiz_status, code_status, post_quiz_status, assignment_status]
@@ -104,7 +98,6 @@ def derive_experiment_progress(
             experiment_id=exp.id,
             experiment_title=exp.title,
             pre_quiz=pre_quiz_status,
-            guided_lab=guided_lab_status,
             code_exercise=code_status,
             post_quiz=post_quiz_status,
             assignment=assignment_status,
@@ -113,3 +106,64 @@ def derive_experiment_progress(
         ))
 
     return results
+
+
+def missing_assignment_prerequisites(
+    student_id: uuid.UUID,
+    exp: Experiment,
+    db: Session,
+) -> list[str]:
+    """
+    Steps a student must still finish before the graded assignment unlocks.
+    An empty list means the assignment is open.
+
+    Strict rule (may be relaxed later): Pre-Quiz and Post-Quiz must be submitted,
+    and the Code Exercise result must MATCH the stored expected result.
+    "Completed" means exactly what it means in derive_experiment_progress, so the
+    lock and the progress screens can never disagree.
+
+    A step the experiment does not have cannot be required:
+      - no pre/post quiz defined      -> that quiz is skipped
+      - no evaluation spec defined    -> nothing can ever match, so the code step is skipped
+    The guided lab is practice only and is never required.
+    """
+    progress = derive_experiment_progress(student_id, [exp], db)
+    # derive_experiment_progress skips unpublished experiments -> nothing is completed.
+    p = progress[0] if progress else None
+    quiz_types = {q.quiz_type.value for q in exp.quizzes}
+
+    missing: list[str] = []
+    if "pre" in quiz_types and (p is None or p.pre_quiz != _CO):
+        missing.append("Pre-Quiz")
+    if exp.evaluation_spec is not None and (p is None or p.code_exercise != _CO):
+        missing.append("Code Exercise")
+    if "post" in quiz_types and (p is None or p.post_quiz != _CO):
+        missing.append("Post-Quiz")
+    return missing
+
+
+def score_is_revealed(quiz: Quiz) -> bool:
+    """May the student see this quiz's score yet? The quiz's reveal_policy decides."""
+    if quiz.reveal_policy == RevealPolicy.immediate:
+        return True
+    if quiz.reveal_policy == RevealPolicy.after_deadline:
+        return quiz.deadline is None or datetime.now(timezone.utc) >= quiz.deadline
+    return False
+
+
+def quiz_attempt_summary(student_id: uuid.UUID, quiz: Quiz, db: Session) -> tuple[int, float | None]:
+    """
+    (attempts so far, best score the student is allowed to see).
+
+    Pre/post quizzes are self-assessment, so their best score is always visible to the student.
+    The graded assignment follows its reveal policy. These numbers go to the student only,
+    never to instructors (the instructor dashboard and CSV carry the assignment score alone).
+    """
+    attempts, best = (
+        db.query(func.count(QuizSubmission.id), func.max(QuizSubmission.score))
+        .filter(QuizSubmission.student_id == student_id, QuizSubmission.quiz_id == quiz.id)
+        .one()
+    )
+    if quiz.quiz_type == QuizType.assignment and not score_is_revealed(quiz):
+        best = None
+    return attempts, best

@@ -10,8 +10,9 @@ import "./CodeEditor.css";
  * Props:
  *   experiment    — full experiment object (id, starter_code, allowed_imports)
  *   onSubmitted   — callback called with CodeSubmissionOut after successful submit
+ *   canSubmit     — false for instructors/admins: they can run code but not submit it
  */
-export default function CodeEditor({ experiment, onSubmitted }) {
+export default function CodeEditor({ experiment, onSubmitted, canSubmit = true }) {
   const [code, setCode] = useState(experiment?.starter_code || "# Write your Python code here\n");
   const { status, stdout, result, run } = usePyodide();
   const [submitting, setSubmitting] = useState(false);
@@ -86,7 +87,7 @@ export default function CodeEditor({ experiment, onSubmitted }) {
         >
           {isRunning ? statusLabel : "▶ Run"}
         </button>
-        {result && (
+        {result && canSubmit && (
           <button
             className="btn btn--ghost"
             onClick={handleSubmit}
@@ -129,6 +130,10 @@ export default function CodeEditor({ experiment, onSubmitted }) {
       )}
 
       {submitError && <div className="alert alert--error">{submitError}</div>}
+
+      {!canSubmit && (
+        <p className="code-editor__note">View only: instructors and admins can run code but not submit it.</p>
+      )}
 
       {/* Note about client-side execution */}
       <p className="code-editor__note">

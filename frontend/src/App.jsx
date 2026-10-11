@@ -28,6 +28,13 @@ function RequireAdmin() {
   return <Outlet />;
 }
 
+/** Routes only for students (their own progress page). Instructors and admins use the instructor dashboard instead. */
+function RequireStudent() {
+  const { user } = useAuth();
+  if (user?.role !== "student") return <Navigate to="/instructor" replace />;
+  return <Outlet />;
+}
+
 /** Routes for admin and instructor only. */
 function RequireInstructorOrAdmin() {
   const { user } = useAuth();
@@ -48,7 +55,11 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Home />} />
           <Route path="/experiments/:slug" element={<ExperimentPage />} />
-          <Route path="/dashboard" element={<StudentDashboard />} />
+
+          {/* Student only */}
+          <Route element={<RequireStudent />}>
+            <Route path="/dashboard" element={<StudentDashboard />} />
+          </Route>
 
           {/* Instructor + Admin */}
           <Route element={<RequireInstructorOrAdmin />}>

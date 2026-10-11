@@ -82,3 +82,14 @@
   flex: 1;
   font-size: 0.95rem;
 }
+
+.quiz-readonly {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.quiz-panel__best {
+  margin: 0 0 var(--space-2);
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}

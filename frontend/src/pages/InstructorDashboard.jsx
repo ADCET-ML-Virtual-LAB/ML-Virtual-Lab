@@ -3,6 +3,18 @@ import { batchesApi } from "../api/batches.js";
 import { dashboardApi } from "../api/dashboard.js";
 import "./InstructorDashboard.css";
 
+const OVERALL_LABEL = {
+  not_started: "Not started",
+  in_progress: "Ongoing",
+  completed: "Completed",
+};
+
+const OVERALL_BADGE = {
+  not_started: "badge--gray",
+  in_progress: "badge--yellow",
+  completed: "badge--green",
+};
+
 export default function InstructorDashboard() {
   const [batches, setBatches] = useState([]);
   const [selectedBatch, setSelectedBatch] = useState("");
@@ -116,14 +128,17 @@ export default function InstructorDashboard() {
                     {student.experiments.map((exp) => (
                       <td key={exp.experiment_id}>
                         <div className="inst-dash__cell-status">
-                          <span className={`badge ${exp.overall_status === 'completed' ? 'badge--green' : exp.overall_status === 'in_progress' ? 'badge--yellow' : 'badge--gray'}`}>
-                            {exp.overall_status === "completed" ? "Done" : exp.overall_status === "in_progress" ? "WIP" : "Not Started"}
+                          <span className={`badge ${OVERALL_BADGE[exp.overall_status]}`}>
+                            {OVERALL_LABEL[exp.overall_status]}
                           </span>
-                          {exp.assignment_score != null && (
-                            <span className="inst-dash__cell-score">
-                              {exp.assignment_score}%
-                            </span>
-                          )}
+                        </div>
+                        <div className="inst-dash__cell-assignment">
+                          Assignment:{" "}
+                          {exp.assignment_status === "completed"
+                            ? exp.assignment_score != null
+                              ? `${exp.assignment_score}%`
+                              : "Submitted"
+                            : "Not submitted"}
                         </div>
                       </td>
                     ))}
@@ -131,6 +146,9 @@ export default function InstructorDashboard() {
                 ))}
               </tbody>
             </table>
+            <p className="inst-dash__note">
+              Overall status also counts each student's self-assessment quizzes, which are not shown here.
+            </p>
           </div>
         )}
       </div>

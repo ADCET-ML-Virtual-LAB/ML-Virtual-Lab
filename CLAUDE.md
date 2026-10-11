@@ -54,10 +54,10 @@ this experiment" is computed on read from existing rows
 exercise) rather than a separate progress table that has to be kept in
 sync. See `app/services/progress.py` (or wherever it lands) and
 `openapi.yaml`'s `ExperimentProgress` schema for the exact step list and
-statuses. The guided/parametric lab (Module 5) has no backend persistence
-at all — it's pure client-side computation — so it currently can't be
-tracked as a step; if instructors need it tracked, that requires adding a
-"lab interacted with" ping endpoint, which doesn't exist yet.
+statuses. The guided/parametric lab (Module 5) is pure client-side
+computation and is practice only, not a tracked step: it does not appear in
+the progress data, the student's progress card, the instructor dashboard or
+the CSV.
 
 **IDs are UUIDs, not auto-increment ints** — avoids sequential IDs being
 guessable/enumerable in a public-ish API.
@@ -137,10 +137,29 @@ criteria" checklist before a PR is opened. Adding pytest + a test DB is
 open follow-up work, not yet scheduled.
 
 ## What's implemented vs. stub (keep this section updated)
-- **Done**: auth (login/me/change-password), batches (create/list/get),
-  student upload + onboarding email.
-- **Stub only** (router file exists, no endpoints yet): experiments,
-  quizzes, code_submissions, dashboards. See `ISSUES.md` and
-  `openapi.yaml` for their intended shape — `openapi.yaml` documents the
-  target design for these even where the code doesn't exist yet;
-  check the router file itself for what's actually live.
+- **Done**: auth (login/me/change-password), batches (create/list/get,
+  student upload + onboarding email, instructor assignment), experiments
+  (including their quizzes), quizzes (submit + assignment lock),
+  code_submissions, dashboards (student, instructor, instructor CSV).
+- `openapi.yaml` documents the intended design; its `x-status` markers can lag
+  behind the code, so check the router file itself for what's actually live.
+
+## Role and quiz rules (keep in sync with the code)
+- **Roles**: student, instructor, admin. Students take quizzes, submit code and
+  see their own progress. Instructors and admins only *view*: they cannot submit
+  quizzes or code, and `/dashboards/student` is students-only (the frontend
+  hides "My Progress" and redirects them to `/instructor`).
+- **Instructor scope**: an instructor sees only their assigned batches
+  (`GET /batches`, `GET /batches/{id}`, dashboard, CSV). Admins see all.
+- **What instructors see**: per student and experiment, an overall badge (Not
+  started / Ongoing / Completed) plus the assignment status and score. The CSV
+  has only the assignment status and score. Pre/post quiz results never go to
+  instructors, though completing them still counts toward the overall status.
+- **Pre/post quizzes**: self-assessment, unlimited attempts, every score stored,
+  the student sees their best score.
+- **Assignment**: one attempt only (409 on a second). It is locked, and its
+  questions are hidden, until the pre-quiz and post-quiz are submitted and the
+  code exercise output *matches* the stored result (see
+  `missing_assignment_prerequisites` in `app/services/progress.py`). The
+  server enforces this; the UI only mirrors it. A step the experiment does not
+  have (no quiz, or no expected result) is skipped.

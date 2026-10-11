@@ -71,7 +71,7 @@ class QuizSubmission(Base, UUIDPKMixin):
     student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     quiz_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"), nullable=False)
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # null for ungraded pre/post
+    score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # pre/post: the student's own self-assessment score (never sent to instructors); assignment: graded score
     submitted_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (

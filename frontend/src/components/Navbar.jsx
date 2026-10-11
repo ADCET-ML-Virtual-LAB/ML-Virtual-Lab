@@ -24,9 +24,11 @@ export default function Navbar() {
               <NavLink to="/" end className="navbar__link">
                 Experiments
               </NavLink>
-              <NavLink to="/dashboard" className="navbar__link">
-                My Progress
-              </NavLink>
+              {user.role === "student" && (
+                <NavLink to="/dashboard" className="navbar__link">
+                  My Progress
+                </NavLink>
+              )}
               {(user.role === "instructor" || user.role === "admin") && (
                 <NavLink to="/instructor" className="navbar__link">
                   Instructor

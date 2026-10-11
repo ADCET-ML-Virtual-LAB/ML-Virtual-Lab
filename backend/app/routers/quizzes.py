@@ -23,7 +23,7 @@ from app.models.quiz import (
     Quiz,
     QuizAnswer,
     QuizSubmission,
-    RevealPolicy,
+    QuizType,
 )
 from app.models.user import UserRole
 from app.schemas.quiz import (
@@ -33,6 +33,11 @@ from app.schemas.quiz import (
     QuizSubmitRequest,
     QuizSubmitResponse,
     QuizAnswerResult,
+)
+from app.services.progress import (
+    missing_assignment_prerequisites,
+    quiz_attempt_summary,
+    score_is_revealed,
 )
 
 router = APIRouter(tags=["quizzes"])
@@ -114,7 +119,17 @@ def get_quiz(
     # Admin/instructor see is_correct; students don't
     if current_user.role in (UserRole.admin, UserRole.instructor):
         return QuizOutAdmin.model_validate(quiz)
-    return QuizOut.model_validate(quiz)
+    # Locked means locked for viewing too: no questions until the earlier steps are done.
+    if quiz.quiz_type == QuizType.assignment:
+        missing = missing_assignment_prerequisites(current_user.id, quiz.experiment, db)
+        if missing:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Assignment is locked. Complete these first: " + ", ".join(missing),
+            )
+    out = QuizOut.model_validate(quiz)
+    out.my_attempts, out.my_best_score = quiz_attempt_summary(current_user.id, quiz, db)
+    return out
 
 
 # ── Submit quiz ───────────────────────────────────────────────────────────────
@@ -132,11 +147,36 @@ def submit_quiz(
 ):
     """
     Accept quiz answers and return per-question correctness.
-    For pre/post (ungraded): no score stored.
-    For assignment (graded): stores score; reveals it based on reveal_policy.
-    Re-submission is always allowed — each call creates a new attempt.
+    Pre/post (self-assessment): unlimited attempts; every score is stored and the response carries
+    this attempt's score plus the best score so far. Instructors never receive these scores.
+    Assignment (graded): ONE attempt only (a second submit returns 409); its score is revealed
+    according to reveal_policy.
     """
+    # Only students take quizzes. Instructors and admins view content and results, they do not submit.
+    if current_user.role != UserRole.student:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only students can submit quizzes")
+
     quiz = _get_quiz_or_404(quiz_id, db)
+
+    # The graded assignment stays locked until the earlier steps are done.
+    # Enforced here (not only in the UI) so it cannot be bypassed by calling the API directly.
+    if quiz.quiz_type == QuizType.assignment:
+        missing = missing_assignment_prerequisites(current_user.id, quiz.experiment, db)
+        if missing:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Assignment is locked. Complete these first: " + ", ".join(missing),
+            )
+
+    # The graded assignment can be submitted exactly once.
+    if quiz.quiz_type == QuizType.assignment:
+        already = (
+            db.query(QuizSubmission)
+            .filter(QuizSubmission.student_id == current_user.id, QuizSubmission.quiz_id == quiz_id)
+            .first()
+        )
+        if already is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "You have already submitted this assignment")
 
     # Build a lookup of valid question_id → {option_id → is_correct}
     question_map: dict[uuid.UUID, dict[uuid.UUID, bool]] = {}
@@ -177,39 +217,48 @@ def submit_quiz(
     )
     attempt_number = prev_attempts + 1
 
-    # Persist submission
-    submission = QuizSubmission(
-        student_id=current_user.id,
-        quiz_id=quiz_id,
-        attempt_number=attempt_number,
-        score=score if quiz.is_scored else None,
-        submitted_at=datetime.now(timezone.utc),
-    )
-    db.add(submission)
-    db.flush()
+    # Persist the submission. The score is stored for every quiz type: pre/post so the student can see
+    # their best score, the assignment so instructors can. Pre/post scores are never sent to instructors.
+    try:
+        submission = QuizSubmission(
+            student_id=current_user.id,
+            quiz_id=quiz_id,
+            attempt_number=attempt_number,
+            score=score,
+            submitted_at=datetime.now(timezone.utc),
+        )
+        db.add(submission)
+        db.flush()
 
-    for answer in payload.answers:
-        opts = question_map[answer.question_id]
-        db.add(QuizAnswer(
-            quiz_submission_id=submission.id,
-            question_id=answer.question_id,
-            selected_option_id=answer.selected_option_id,
-            is_correct=opts[answer.selected_option_id],
-        ))
+        for answer in payload.answers:
+            opts = question_map[answer.question_id]
+            db.add(QuizAnswer(
+                quiz_submission_id=submission.id,
+                question_id=answer.question_id,
+                selected_option_id=answer.selected_option_id,
+                is_correct=opts[answer.selected_option_id],
+            ))
 
-    db.commit()
+        db.commit()
+    except IntegrityError:
+        # Two submits at the same moment (e.g. a double click) collide on the unique attempt number.
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This quiz was just submitted from another request. Please refresh the page.",
+        )
 
-    # Decide whether to reveal score (assignment only, based on reveal_policy)
-    revealed_score: float | None = None
-    if quiz.is_scored:
-        if quiz.reveal_policy == RevealPolicy.immediate:
-            revealed_score = score
-        elif quiz.reveal_policy == RevealPolicy.after_deadline:
-            if quiz.deadline is None or datetime.now(timezone.utc) >= quiz.deadline:
-                revealed_score = score
+    # Pre/post scores are always visible to the student; the assignment score follows its reveal_policy.
+    if quiz.quiz_type == QuizType.assignment:
+        revealed_score = score if score_is_revealed(quiz) else None
+        best_score = None
+    else:
+        revealed_score = score
+        _, best_score = quiz_attempt_summary(current_user.id, quiz, db)
 
     return QuizSubmitResponse(
         attempt_number=attempt_number,
         score=revealed_score,
+        best_score=best_score,
         answers=results,
     )

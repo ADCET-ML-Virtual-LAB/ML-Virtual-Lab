@@ -65,6 +65,9 @@ class QuizOut(BaseModel):
     deadline: Optional[datetime] = None
     reveal_policy: RevealPolicy
     questions: list[QuestionOut]
+    # Filled in for the logged-in student only (instructors and admins always get 0 / None).
+    my_attempts: int = 0
+    my_best_score: Optional[float] = None  # pre/post: best attempt; assignment: only once reveal_policy allows
 
 
 class QuizOutAdmin(BaseModel):
@@ -105,5 +108,6 @@ class QuizAnswerResult(BaseModel):
 
 class QuizSubmitResponse(BaseModel):
     attempt_number: int
-    score: Optional[float] = None  # None for ungraded pre/post
+    score: Optional[float] = None  # this attempt's score (assignment: only once reveal_policy allows)
+    best_score: Optional[float] = None  # pre/post only: best score over all attempts so far
     answers: list[QuizAnswerResult]

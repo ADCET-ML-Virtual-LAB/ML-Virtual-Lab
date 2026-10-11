@@ -52,3 +52,15 @@
   font-size: 0.85rem;
   color: var(--color-primary);
 }
+
+.inst-dash__cell-assignment {
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.inst-dash__note {
+  margin: var(--space-2) 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}

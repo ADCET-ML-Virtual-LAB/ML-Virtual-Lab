@@ -9,14 +9,13 @@ class StepStatus:
     not_started = "not_started"
     in_progress = "in_progress"
     completed = "completed"
-    not_tracked = "not_tracked"
 
 
 class ExperimentProgress(BaseModel):
+    """A student's own view of one experiment. The guided lab is practice only and is not a tracked step."""
     experiment_id: uuid.UUID
     experiment_title: str
     pre_quiz: str  # StepStatus values
-    guided_lab: str  # always "not_tracked" until ping endpoint exists
     code_exercise: str
     post_quiz: str
     assignment: str
@@ -24,8 +23,20 @@ class ExperimentProgress(BaseModel):
     overall_status: str
 
 
+class InstructorExperimentProgress(BaseModel):
+    """
+    What an instructor sees per student per experiment: the overall status and the graded assignment.
+    Pre/post quiz results are the student's own self-assessment and are not sent to instructors.
+    """
+    experiment_id: uuid.UUID
+    experiment_title: str
+    overall_status: str  # not_started | in_progress ("Ongoing") | completed
+    assignment_status: str  # not_started | completed
+    assignment_score: Optional[float] = None
+
+
 class InstructorStudentProgress(BaseModel):
     student_id: uuid.UUID
     student_name: str
     roll_number: Optional[str] = None
-    experiments: list[ExperimentProgress]
+    experiments: list[InstructorExperimentProgress]

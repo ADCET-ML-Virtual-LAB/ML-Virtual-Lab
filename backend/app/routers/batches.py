@@ -61,18 +61,26 @@ def create_batch(
 @router.get("", response_model=list[BatchOut])
 def list_batches(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
+    user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
 ):
-    return db.query(Batch).order_by(Batch.created_at.desc()).all()
+    """Admin sees every batch; an instructor sees only the batches they are assigned to."""
+    query = db.query(Batch)
+    if user.role == UserRole.instructor:
+        query = query.join(InstructorAssignment, InstructorAssignment.batch_id == Batch.id).filter(
+            InstructorAssignment.instructor_id == user.id
+        )
+    return query.order_by(Batch.created_at.desc()).all()
 
 
 @router.get("/{batch_id}", response_model=BatchOut)
 def get_batch(
     batch_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
+    user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
 ):
-    return _get_batch_or_404(batch_id, db)
+    batch = _get_batch_or_404(batch_id, db)
+    _assert_can_manage_batch(batch.id, user, db)
+    return batch
 
 
 @router.post("/{batch_id}/students", response_model=StudentUploadResponse, status_code=status.HTTP_201_CREATED)

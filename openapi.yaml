@@ -150,7 +150,8 @@ paths:
         "422": { $ref: "#/components/responses/ValidationError" }
     get:
       tags: [batches]
-      summary: List all batches (Admin, Instructor)
+      summary: List batches (Admin, Instructor)
+      description: Admins see every batch; an instructor sees only the batches they are assigned to.
       x-status: implemented
       responses:
         "200":
@@ -167,6 +168,7 @@ paths:
     get:
       tags: [batches]
       summary: Get one batch
+      description: Admins can read any batch; an instructor only a batch they are assigned to (otherwise 403).
       x-status: implemented
       parameters:
         - $ref: "#/components/parameters/BatchId"
@@ -273,8 +275,14 @@ paths:
   /experiments/{slug}:
     get:
       tags: [experiments]
-      summary: Get one published experiment's content
-      description: Never includes the evaluation spec / expected output for the code exercise.
+      summary: Get one published experiment's content, including its quizzes
+      description: |
+        Never includes the evaluation spec / expected output for the code exercise.
+
+        For a student whose assignment is still locked (see the quiz submit endpoint
+        for the rule), the assignment quiz is returned with an empty `questions`
+        list and `assignment_locked: true`, so it cannot even be viewed. Instructors
+        and admins are never locked.
       x-status: planned
       parameters:
         - name: slug
@@ -286,7 +294,7 @@ paths:
           description: OK
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Experiment" }
+              schema: { $ref: "#/components/schemas/ExperimentDetail" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -326,8 +334,9 @@ paths:
     get:
       tags: [quizzes]
       summary: Get a quiz's questions and options
-      description: Never includes `Option.is_correct` for a student caller.
-      x-status: planned
+      description: |
+        Never includes `Option.is_correct` for a student caller.
+        A student cannot fetch the `assignment` quiz while it is locked (403).
       parameters:
         - $ref: "#/components/parameters/QuizId"
       responses:
@@ -337,6 +346,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Quiz" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Student asked for the assignment while it is still locked (the detail lists the steps left)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /quizzes/{quiz_id}/submit:
@@ -344,12 +358,23 @@ paths:
       tags: [quizzes]
       summary: Submit answers for a quiz
       description: |
-        For `pre`/`post` (ungraded): returns per-question correct/incorrect,
-        no score is stored. For `assignment` (graded): stores a `score`;
-        the response includes it only if `reveal_policy` allows it yet
-        (`immediate`, or `after_deadline` once the deadline has passed).
-        Each call creates a new `attempt_number` — re-submitting is always
-        allowed, there's no "already submitted" error.
+        `pre`/`post` quizzes are for the student's own self-assessment, with
+        unlimited attempts. Every attempt's score is stored, and the response
+        carries both `score` (this attempt) and `best_score` (best so far). These
+        scores are never sent to instructors.
+
+        The `assignment` (graded) can be submitted exactly once; a second attempt
+        returns 409. Its `score` is included in the response only if
+        `reveal_policy` allows it yet (`immediate`, or `after_deadline` once the
+        deadline has passed).
+
+        Only students can submit; instructors and admins get 403.
+
+        The `assignment` quiz is locked until the student has finished the
+        earlier steps: Pre-Quiz and Post-Quiz submitted, and the Code Exercise
+        output matching the stored expected result (a step the experiment does
+        not have is skipped; the guided lab is never required). Until then the
+        request is rejected with 403.
       x-status: planned
       parameters:
         - $ref: "#/components/parameters/QuizId"
@@ -365,8 +390,17 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/QuizSubmitResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
+        "403":
+          description: Caller is not a student, or the assignment is still locked (the detail lists the steps left)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The assignment was already submitted (one attempt only), or two submits collided
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "422":
           description: A question_id not in this quiz, or an option_id not belonging to its question
           content:
@@ -383,7 +417,8 @@ paths:
         Worker) has already executed it; this endpoint compares
         `client_output` to the experiment's hidden `ExperimentEvaluationSpec`
         and returns feedback. Send `client_error` instead of `client_output`
-        if execution raised in the browser.
+        if execution raised in the browser. Students only; instructors and
+        admins get 403.
       x-status: planned
       requestBody:
         required: true
@@ -397,6 +432,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/CodeSubmissionOut" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404":
           description: experiment_id not found, or it has no evaluation spec yet
           content:
@@ -426,7 +462,8 @@ paths:
   /dashboards/student:
     get:
       tags: [dashboards]
-      summary: Your own scores and per-experiment progress
+      summary: Your own scores and per-experiment progress (Student only)
+      description: Instructors and admins get 403; they use the instructor dashboard instead.
       x-status: planned
       responses:
         "200":
@@ -437,21 +474,20 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/ExperimentProgress" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /dashboards/instructor:
     get:
       tags: [dashboards]
       summary: Per-student, per-experiment progress and assignment scores for one batch
       description: |
-        Progress per experiment is derived from existing submissions, not a
-        separately-tracked table (see CLAUDE.md): `pre_quiz`, `code_exercise`
-        and `post_quiz` are each `not_started | in_progress | completed`
-        based on whether a submission exists (and, for the code exercise,
-        whether its status is `matched`); `assignment` additionally carries
-        its `score`. `guided_lab` is currently always `not_tracked` — Module
-        5 has no backend persistence yet (see CLAUDE.md's "Progress is
-        derived" note) — until a lab-interaction ping endpoint exists.
-        Overall `status` is `completed` only once every trackable step is.
+        An instructor sees, per student and experiment, only the overall status
+        (`not_started | in_progress | completed`, shown as Not started / Ongoing /
+        Completed) and the graded assignment (`assignment_status` plus its
+        `assignment_score`, once the quiz's reveal policy allows it). Pre-quiz and
+        post-quiz results are the student's own self-assessment and are never sent
+        to instructors, although finishing them still counts toward the overall
+        status. The guided lab is practice only and is not tracked.
       x-status: planned
       parameters:
         - name: batch_id
@@ -477,7 +513,11 @@ paths:
   /dashboards/instructor/export:
     get:
       tags: [dashboards]
-      summary: Same data as /dashboards/instructor, as a CSV download
+      summary: Assignment status and score per student, as a CSV download
+      description: |
+        Columns: `student_name`, `roll_number`, `email`, then for each published
+        experiment `<slug>_assignment` (status) and `<slug>_score`. No pre/post
+        quiz columns and no overall-status column.
       x-status: planned
       parameters:
         - name: batch_id
@@ -696,6 +736,23 @@ components:
           items: { $ref: "#/components/schemas/Option" }
       required: [id, question_text, order_index, options]
 
+    ExperimentDetail:
+      description: |
+        `Experiment` plus its quizzes. For a student whose assignment is locked, the
+        assignment quiz has an empty `questions` list and `assignment_locked` is true.
+      allOf:
+        - $ref: "#/components/schemas/Experiment"
+        - type: object
+          properties:
+            quizzes:
+              type: array
+              items: { $ref: "#/components/schemas/Quiz" }
+            assignment_locked: { type: boolean }
+            assignment_missing_steps:
+              type: array
+              items: { type: string }
+              description: Steps still to complete, e.g. ["Pre-Quiz", "Code Exercise"]. Empty when unlocked.
+
     Quiz:
       type: object
       properties:
@@ -709,6 +766,13 @@ components:
         questions:
           type: array
           items: { $ref: "#/components/schemas/Question" }
+        my_attempts:
+          type: integer
+          description: Student only. How many times the caller has submitted this quiz (0 for instructors and admins).
+        my_best_score:
+          type: number
+          nullable: true
+          description: Student only. Pre/post, best attempt; assignment, only once reveal_policy allows it.
       required: [id, experiment_id, quiz_type, is_scored, title, reveal_policy, questions]
 
     QuestionCreate:
@@ -771,7 +835,11 @@ components:
         score:
           type: number
           nullable: true
-          description: Present only for is_scored=true quizzes, and only once reveal_policy allows it.
+          description: This attempt's score. Always present for pre/post; for the assignment only once reveal_policy allows it.
+        best_score:
+          type: number
+          nullable: true
+          description: Pre/post only. Best score over all attempts so far.
         answers:
           type: array
           items: { $ref: "#/components/schemas/QuizAnswerResult" }
@@ -808,18 +876,17 @@ components:
 
     StepStatus:
       type: string
-      enum: [not_started, in_progress, completed, not_tracked]
+      enum: [not_started, in_progress, completed]
 
     ExperimentProgress:
       type: object
-      description: One student's progress through one experiment's steps.
+      description: |
+        One student's own progress through one experiment's steps (student dashboard).
+        The guided lab is practice only and is not a step.
       properties:
         experiment_id: { type: string, format: uuid }
         experiment_title: { type: string }
         pre_quiz: { $ref: "#/components/schemas/StepStatus" }
-        guided_lab:
-          $ref: "#/components/schemas/StepStatus"
-          description: Always not_tracked until a lab-interaction ping endpoint exists (see CLAUDE.md).
         code_exercise: { $ref: "#/components/schemas/StepStatus" }
         post_quiz: { $ref: "#/components/schemas/StepStatus" }
         assignment: { $ref: "#/components/schemas/StepStatus" }
@@ -829,16 +896,31 @@ components:
           description: Only present once the assignment step is completed and reveal_policy allows it.
         overall_status:
           $ref: "#/components/schemas/StepStatus"
-          description: completed only once every trackable (non not_tracked) step is completed.
+          description: completed only once pre-quiz, code exercise, post-quiz and assignment are all completed.
       required:
         - experiment_id
         - experiment_title
         - pre_quiz
-        - guided_lab
         - code_exercise
         - post_quiz
         - assignment
         - overall_status
+
+    InstructorExperimentProgress:
+      type: object
+      description: |
+        What an instructor sees per student per experiment. Pre/post quiz results
+        are the student's self-assessment and are not included.
+      properties:
+        experiment_id: { type: string, format: uuid }
+        experiment_title: { type: string }
+        overall_status: { $ref: "#/components/schemas/StepStatus" }
+        assignment_status: { $ref: "#/components/schemas/StepStatus" }
+        assignment_score:
+          type: number
+          nullable: true
+          description: Only present once the assignment is submitted and reveal_policy allows it.
+      required: [experiment_id, experiment_title, overall_status, assignment_status]
 
     InstructorStudentProgress:
       type: object
@@ -848,5 +930,5 @@ components:
         roll_number: { type: string, nullable: true }
         experiments:
           type: array
-          items: { $ref: "#/components/schemas/ExperimentProgress" }
+          items: { $ref: "#/components/schemas/InstructorExperimentProgress" }
       required: [student_id, student_name, experiments]

@@ -9,18 +9,20 @@ import "./QuizPanel.css";
  *   quiz        — quiz object from the backend (questions + options, no is_correct for students)
  *   quizType    — "pre" | "post" | "assignment"
  *   onComplete  — called with the submit response after successful submission
+ *   readOnly    — true for instructors/admins: they can view, but not answer or submit
  */
-export default function QuizPanel({ quiz, quizType, onComplete }) {
+export default function QuizPanel({ quiz, quizType, onComplete, readOnly = false }) {
   const [answers, setAnswers] = useState({}); // { question_id: option_id }
   const [result, setResult] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [bestScore, setBestScore] = useState(quiz.my_best_score ?? null);
 
   const label = quizType === "pre" ? "Pre-Quiz" : quizType === "post" ? "Post-Quiz" : "Assignment";
   const isGraded = quizType === "assignment";
 
   function selectOption(questionId, optionId) {
-    if (result) return; // already submitted
+    if (result || readOnly) return; // already submitted, or view-only
     setAnswers((prev) => ({ ...prev, [questionId]: optionId }));
   }
 
@@ -38,6 +40,7 @@ export default function QuizPanel({ quiz, quizType, onComplete }) {
       }));
       const res = await quizzesApi.submit(quiz.id, answersPayload);
       setResult(res);
+      if (res.best_score != null) setBestScore(res.best_score);
       onComplete?.(res);
     } catch (err) {
       setError(err.response?.data?.detail || "Submission failed. Please try again.");
@@ -60,12 +63,41 @@ export default function QuizPanel({ quiz, quizType, onComplete }) {
     return cls;
   }
 
+  // The assignment can be submitted only once: reopening it shows the saved state, not the form.
+  if (isGraded && !result && quiz.my_attempts > 0) {
+    return (
+      <div className="quiz-panel">
+        <div className="quiz-panel__header">
+          <h3 className="quiz-panel__title">{quiz.title || label}</h3>
+          <span className="badge badge--blue">Graded</span>
+        </div>
+        <div className="quiz-result">
+          <div className="quiz-result__score">
+            {quiz.my_best_score != null ? (
+              <>
+                You have already submitted this assignment. Score: <strong>{quiz.my_best_score}%</strong>
+              </>
+            ) : (
+              "You have already submitted this assignment. Your score will be shown after the deadline."
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="quiz-panel">
       <div className="quiz-panel__header">
         <h3 className="quiz-panel__title">{quiz.title || label}</h3>
         {isGraded && <span className="badge badge--blue">Graded</span>}
       </div>
+
+      {!isGraded && bestScore != null && (
+        <p className="quiz-panel__best">
+          Best score so far: <strong>{bestScore}%</strong> (unlimited attempts, for your own practice)
+        </p>
+      )}
 
       {quiz.questions.map((question, qi) => (
         <div key={question.id} className="quiz-question">
@@ -81,7 +113,7 @@ export default function QuizPanel({ quiz, quizType, onComplete }) {
                   key={option.id}
                   className={getOptionClass(question, option)}
                   onClick={() => selectOption(question.id, option.id)}
-                  disabled={!!result}
+                  disabled={!!result || readOnly}
                 >
                   {option.option_text}
                 </button>
@@ -92,7 +124,9 @@ export default function QuizPanel({ quiz, quizType, onComplete }) {
 
       {error && <div className="alert alert--error">{error}</div>}
 
-      {!result ? (
+      {readOnly ? (
+        <div className="quiz-readonly">View only: only students can answer and submit quizzes.</div>
+      ) : !result ? (
         <button
           className="btn btn--primary"
           onClick={handleSubmit}
@@ -113,15 +147,18 @@ export default function QuizPanel({ quiz, quizType, onComplete }) {
           ) : (
             <div className="quiz-result__score">
               {result.answers.filter((a) => a.is_correct).length} / {result.answers.length} correct
+              {result.score != null && <> ({result.score}%)</>}
               &nbsp;— attempt #{result.attempt_number}
             </div>
           )}
-          <button
-            className="btn btn--ghost btn--sm"
-            onClick={() => { setResult(null); setAnswers({}); }}
-          >
-            Retry
-          </button>
+          {!isGraded && (
+            <button
+              className="btn btn--ghost btn--sm"
+              onClick={() => { setResult(null); setAnswers({}); }}
+            >
+              Retry
+            </button>
+          )}
         </div>
       )}
     </div>
