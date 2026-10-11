@@ -11,7 +11,14 @@ import ExperimentPage from "./pages/ExperimentPage.jsx";
 import Profile from "./pages/Profile.jsx";
 import StudentDashboard from "./pages/StudentDashboard.jsx";
 import AssignmentScores from "./pages/AssignmentScores.jsx";
-import InstructorDashboard from "./pages/InstructorDashboard.jsx";
+import InstructorBatches from "./pages/InstructorBatches.jsx";
+import InstructorBatchWorkspace from "./pages/InstructorBatchWorkspace.jsx";
+import InstructorBatchInfo from "./pages/InstructorBatchInfo.jsx";
+import InstructorExperiment from "./pages/InstructorExperiment.jsx";
+import InstructorExperimentStatus from "./pages/InstructorExperimentStatus.jsx";
+import InstructorAssignment from "./pages/InstructorAssignment.jsx";
+import InstructorAssignmentStatus from "./pages/InstructorAssignmentStatus.jsx";
+import InstructorSubmission from "./pages/InstructorSubmission.jsx";
 import AdminPanel from "./pages/AdminPanel.jsx";
 
 /** Routes that require a logged-in user. Redirects to /login if not. */
@@ -31,18 +38,24 @@ function RequireAdmin() {
   return <Outlet />;
 }
 
-/** Routes only for students (their own progress page). Instructors and admins use the instructor dashboard instead. */
+/** Routes only for students (their own progress pages). */
 function RequireStudent() {
   const { user } = useAuth();
-  if (user?.role !== "student") return <Navigate to="/instructor" replace />;
+  if (user?.role !== "student") return <Navigate to="/" replace />;
   return <Outlet />;
 }
 
-/** Routes for admin and instructor only. */
-function RequireInstructorOrAdmin() {
+/** Instructor console routes: instructors only (admins and students are sent Home). */
+function RequireInstructor() {
   const { user } = useAuth();
-  if (!user || (user.role !== "admin" && user.role !== "instructor"))
-    return <Navigate to="/" replace />;
+  if (user?.role !== "instructor") return <Navigate to="/" replace />;
+  return <Outlet />;
+}
+
+/** Instructors see experiments only inside a batch, never through the student pages. */
+function RequireNotInstructor() {
+  const { user } = useAuth();
+  if (user?.role === "instructor") return <Navigate to="/batches" replace />;
   return <Outlet />;
 }
 
@@ -57,8 +70,10 @@ export default function App() {
       <Route element={<RequireAuth />}>
         <Route element={<Layout />}>
           <Route path="/" element={<Home />} />
-          <Route path="/experiments" element={<Experiments />} />
-          <Route path="/experiments/:slug" element={<ExperimentPage />} />
+          <Route element={<RequireNotInstructor />}>
+            <Route path="/experiments" element={<Experiments />} />
+            <Route path="/experiments/:slug" element={<ExperimentPage />} />
+          </Route>
           <Route path="/profile" element={<Profile />} />
 
           {/* Student only */}
@@ -67,9 +82,17 @@ export default function App() {
             <Route path="/dashboard/assignment-scores" element={<AssignmentScores />} />
           </Route>
 
-          {/* Instructor + Admin */}
-          <Route element={<RequireInstructorOrAdmin />}>
-            <Route path="/instructor" element={<InstructorDashboard />} />
+          {/* Instructor console (instructors only) */}
+          <Route element={<RequireInstructor />}>
+            <Route path="/batches" element={<InstructorBatches />} />
+            <Route path="/batches/:batchId" element={<InstructorBatchWorkspace />}>
+              <Route index element={<InstructorBatchInfo />} />
+              <Route path="experiments/:experimentId" element={<InstructorExperiment />} />
+              <Route path="experiments/:experimentId/status" element={<InstructorExperimentStatus />} />
+              <Route path="assignments/:experimentId" element={<InstructorAssignment />} />
+              <Route path="assignments/:experimentId/status" element={<InstructorAssignmentStatus />} />
+              <Route path="assignments/:experimentId/status/:studentId" element={<InstructorSubmission />} />
+            </Route>
           </Route>
 
           {/* Admin only */}

@@ -55,17 +55,19 @@ export default function Navbar() {
               <NavLink to="/" end className="navbar__link">
                 Home
               </NavLink>
-              <NavLink to="/experiments" className="navbar__link">
-                Experiments
-              </NavLink>
+              {user.role === "instructor" && (
+                <NavLink to="/batches" className="navbar__link">
+                  Batches
+                </NavLink>
+              )}
+              {user.role !== "instructor" && (
+                <NavLink to="/experiments" className="navbar__link">
+                  Experiments
+                </NavLink>
+              )}
               {user.role === "student" && (
                 <NavLink to="/dashboard" className="navbar__link">
                   View Progress
-                </NavLink>
-              )}
-              {(user.role === "instructor" || user.role === "admin") && (
-                <NavLink to="/instructor" className="navbar__link">
-                  Instructor
                 </NavLink>
               )}
               {user.role === "admin" && (
