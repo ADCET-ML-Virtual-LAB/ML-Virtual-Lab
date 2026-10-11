@@ -1,18 +1,19 @@
 """Progress derivation and assignment-prerequisite checks.
 
-Manually tracked sections are read from SectionCompletion rows. Quiz, code and
-assignment completion is derived from their respective persisted submissions.
+Manually tracked sections are read from SectionCompletion rows. Pre/post quiz
+completion comes from best-score-only StudentQuizProgress rows. Code exercise and
+assignment completion are derived from their persisted result/submission records.
 """
 import uuid
 from datetime import datetime, timezone
 from typing import Sequence
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.code_submission import CodeSubmission, SubmissionStatus
 from app.models.experiment import Experiment
 from app.models.quiz import Quiz, QuizSubmission, QuizType, RevealPolicy
+from app.models.student_quiz_progress import StudentQuizProgress
 from app.schemas.dashboard import ExperimentProgress
 from app.services.section_tracking import (
     STATIC_SECTION_LABELS,
@@ -50,13 +51,13 @@ def derive_experiment_progress(
             for key in STATIC_SECTION_LABELS
         }
 
-        # Pre-quiz: submission, not score, determines completion.
+        # Pre-quiz: the single best-score record means at least one submission occurred.
         pre_q = quizzes_by_type.get(QuizType.pre.value)
         pre_quiz_status = _NS
         if pre_q:
-            has_sub = db.query(QuizSubmission.id).filter(
-                QuizSubmission.student_id == student_id,
-                QuizSubmission.quiz_id == pre_q.id,
+            has_sub = db.query(StudentQuizProgress.id).filter(
+                StudentQuizProgress.student_id == student_id,
+                StudentQuizProgress.quiz_id == pre_q.id,
             ).first() is not None
             pre_quiz_status = _CO if has_sub else _NS
 
@@ -77,13 +78,13 @@ def derive_experiment_progress(
                 ).first() is not None
                 code_status = _IP if has_attempt else _NS
 
-        # Post-quiz: submission, not score, determines completion.
+        # Post-quiz: the single best-score record means at least one submission occurred.
         post_q = quizzes_by_type.get(QuizType.post.value)
         post_quiz_status = _NS
         if post_q:
-            has_sub = db.query(QuizSubmission.id).filter(
-                QuizSubmission.student_id == student_id,
-                QuizSubmission.quiz_id == post_q.id,
+            has_sub = db.query(StudentQuizProgress.id).filter(
+                StudentQuizProgress.student_id == student_id,
+                StudentQuizProgress.quiz_id == post_q.id,
             ).first() is not None
             post_quiz_status = _CO if has_sub else _NS
 
@@ -153,13 +154,13 @@ def missing_assignment_prerequisites(
     pre_q = quiz_types.get(QuizType.pre.value)
     post_q = quiz_types.get(QuizType.post.value)
 
-    pre_submitted = bool(pre_q) and db.query(QuizSubmission.id).filter(
-        QuizSubmission.student_id == student_id,
-        QuizSubmission.quiz_id == pre_q.id,
+    pre_submitted = bool(pre_q) and db.query(StudentQuizProgress.id).filter(
+        StudentQuizProgress.student_id == student_id,
+        StudentQuizProgress.quiz_id == pre_q.id,
     ).first() is not None
-    post_submitted = bool(post_q) and db.query(QuizSubmission.id).filter(
-        QuizSubmission.student_id == student_id,
-        QuizSubmission.quiz_id == post_q.id,
+    post_submitted = bool(post_q) and db.query(StudentQuizProgress.id).filter(
+        StudentQuizProgress.student_id == student_id,
+        StudentQuizProgress.quiz_id == post_q.id,
     ).first() is not None
     code_matched = False
     if exp.evaluation_spec is not None:
@@ -205,18 +206,24 @@ def score_is_revealed(quiz: Quiz) -> bool:
     return False
 
 
-def quiz_attempt_summary(student_id: uuid.UUID, quiz: Quiz, db: Session) -> tuple[int, float | None]:
-    """Return attempt count and best score for current compatibility with quiz UI.
+def student_quiz_status(
+    student_id: uuid.UUID, quiz: Quiz, db: Session
+) -> tuple[bool, float | None]:
+    """Return submitted status and the student-visible saved score.
 
-    The next implementation step will remove attempt-history persistence, as
-    required by the approved student design. This helper currently reads the
-    legacy rows so existing quizzes continue to work during the transition.
+    Pre/post quizzes use one best-score row and never store individual attempts.
+    Assignments continue using their single accepted QuizSubmission record, and
+    student assignment scores are visible immediately after submission.
     """
-    attempts, best = (
-        db.query(func.count(QuizSubmission.id), func.max(QuizSubmission.score))
-        .filter(QuizSubmission.student_id == student_id, QuizSubmission.quiz_id == quiz.id)
-        .one()
-    )
-    if quiz.quiz_type == QuizType.assignment and not score_is_revealed(quiz):
-        best = None
-    return attempts, best
+    if quiz.quiz_type in (QuizType.pre, QuizType.post):
+        result = db.query(StudentQuizProgress).filter(
+            StudentQuizProgress.student_id == student_id,
+            StudentQuizProgress.quiz_id == quiz.id,
+        ).first()
+        return (result is not None, result.best_score if result is not None else None)
+
+    submission = db.query(QuizSubmission).filter(
+        QuizSubmission.student_id == student_id,
+        QuizSubmission.quiz_id == quiz.id,
+    ).first()
+    return (submission is not None, submission.score if submission is not None else None)

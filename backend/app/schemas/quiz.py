@@ -65,9 +65,11 @@ class QuizOut(BaseModel):
     deadline: Optional[datetime] = None
     reveal_policy: RevealPolicy
     questions: list[QuestionOut]
-    # Filled in for the logged-in student only (instructors and admins always get 0 / None).
-    my_attempts: int = 0
-    my_best_score: Optional[float] = None  # pre/post: best attempt; assignment: only once reveal_policy allows
+    # Student-only state. Pre/post expose only the saved best score; assignments
+    # expose their one accepted score immediately to the student.
+    my_submitted: bool = False
+    my_best_score: Optional[float] = None  # Pre-Quiz/Post-Quiz only
+    my_assignment_score: Optional[float] = None  # Assignment only
 
 
 class QuizOutAdmin(BaseModel):
@@ -107,7 +109,12 @@ class QuizAnswerResult(BaseModel):
 
 
 class QuizSubmitResponse(BaseModel):
-    attempt_number: int
-    score: Optional[float] = None  # this attempt's score (assignment: only once reveal_policy allows)
-    best_score: Optional[float] = None  # pre/post only: best score over all attempts so far
+    # For every submission, score is the score for this specific response.
+    # For pre/post, it is transient response data and is not saved as attempt history.
+    # For assignments, it is the accepted assignment score.
+    score: Optional[float] = None
+    # Pre/post only: saved best score across submissions. Assignments use score instead.
+    best_score: Optional[float] = None
+    # Current-submission correctness is returned for immediate feedback only.
+    # Pre/post answers are not persisted as attempt history.
     answers: list[QuizAnswerResult]

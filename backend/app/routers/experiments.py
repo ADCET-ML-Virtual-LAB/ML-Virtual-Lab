@@ -29,7 +29,7 @@ from app.schemas.experiment import (
     ExperimentUpdate,
 )
 from app.schemas.section_completion import SectionCompletionOut
-from app.services.progress import missing_assignment_prerequisites, quiz_attempt_summary
+from app.services.progress import missing_assignment_prerequisites, student_quiz_status
 from app.services.section_tracking import (
     STATIC_SECTION_LABELS,
     get_section_completion_map,
@@ -95,14 +95,17 @@ def get_experiment(
     # Copy into the response model first; the withholding below changes only this copy, never the DB rows.
     detail = ExperimentDetailOut.model_validate(exp)
 
-    # Student only: attempts so far and the best score they may see (instructors never get these).
+    # Student-only saved quiz state: best score for pre/post, accepted score for assignment.
     if current_user.role == UserRole.student:
         detail.section_completions = get_section_completion_map(current_user.id, exp.id, db)
         quizzes_by_id = {q.id: q for q in exp.quizzes}
         for quiz_out in detail.quizzes:
-            quiz_out.my_attempts, quiz_out.my_best_score = quiz_attempt_summary(
-                current_user.id, quizzes_by_id[quiz_out.id], db
-            )
+            quiz = quizzes_by_id[quiz_out.id]
+            quiz_out.my_submitted, saved_score = student_quiz_status(current_user.id, quiz, db)
+            if quiz.quiz_type == QuizType.assignment:
+                quiz_out.my_assignment_score = saved_score
+            else:
+                quiz_out.my_best_score = saved_score
 
     # Assignment lock (students only): until the earlier steps are done the assignment is hidden completely.
     if current_user.role == UserRole.student and any(q.quiz_type == QuizType.assignment for q in exp.quizzes):

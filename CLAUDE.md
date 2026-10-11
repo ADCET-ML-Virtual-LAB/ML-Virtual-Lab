@@ -48,16 +48,13 @@ default 8h) instead of the usual short-access + refresh-token pair. This is
 a deliberate simplicity trade-off for a college project with modest
 security requirements — revisit if that stops being true.
 
-**Progress is derived, not stored.** "How far has this student gotten in
-this experiment" is computed on read from existing rows
-(`QuizSubmission` for pre/post/assignment, `CodeSubmission` for the code
-exercise) rather than a separate progress table that has to be kept in
-sync. See `app/services/progress.py` (or wherever it lands) and
-`openapi.yaml`'s `ExperimentProgress` schema for the exact step list and
-statuses. The guided/parametric lab (Module 5) is pure client-side
-computation and is practice only, not a tracked step: it does not appear in
-the progress data, the student's progress card, the instructor dashboard or
-the CSV.
+**Progress is derived from persisted activity records.** Manual static-section
+completion is stored in `SectionCompletion`; pre/post quiz submitted status and
+best score are stored in one `StudentQuizProgress` row per student/quiz; accepted
+assignment submissions are stored in `QuizSubmission`; code-exercise results are
+stored in `CodeSubmission`. Overall experiment progress is derived on read from
+these records in `app/services/progress.py`. Guided Lab is tracked through the
+same manual Mark Completed mechanism as other required static sections.
 
 **IDs are UUIDs, not auto-increment ints** — avoids sequential IDs being
 guessable/enumerable in a public-ish API.
@@ -155,11 +152,15 @@ open follow-up work, not yet scheduled.
   started / Ongoing / Completed) plus the assignment status and score. The CSV
   has only the assignment status and score. Pre/post quiz results never go to
   instructors, though completing them still counts toward the overall status.
-- **Pre/post quizzes**: self-assessment, unlimited attempts, every score stored,
-  the student sees their best score.
-- **Assignment**: one attempt only (409 on a second). It is locked, and its
-  questions are hidden, until the pre-quiz and post-quiz are submitted and the
-  code exercise output *matches* the stored result (see
+- **Pre/post quizzes**: self-assessment, unlimited attempts. Persist one best-score
+  record per student/quiz; do not store individual attempt or answer history. The
+  student sees only the best score. Current-submission correctness may be returned
+  transiently for immediate feedback.
+- **Assignment**: one accepted submission only (409 on a second). Its score is
+  visible to the submitting student immediately. It is locked, and its
+  questions are hidden, until all required manual sections are marked complete,
+  the pre-quiz and post-quiz are submitted, and the code exercise output *matches*
+  the stored result (see
   `missing_assignment_prerequisites` in `app/services/progress.py`). The
   server enforces this; the UI only mirrors it. A step the experiment does not
   have (no quiz, or no expected result) is skipped.
