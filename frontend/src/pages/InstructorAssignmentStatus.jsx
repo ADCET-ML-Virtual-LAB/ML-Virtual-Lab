@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { instructorApi } from "../api/instructor.js";
 import DataTable from "../components/DataTable.jsx";
-import { csvFileName, saveBlob } from "../utils/download.js";
+import { excelFileName, saveBlob } from "../utils/download.js";
 import { formatScore } from "../utils/format.js";
 import "./InstructorConsole.css";
 
@@ -36,7 +36,7 @@ export default function InstructorAssignmentStatus() {
     setDownloadError("");
     try {
       const blob = await instructorApi.exportAssignment(batchId, experimentId);
-      saveBlob(blob, csvFileName(batch, table.experiment_number, "assignment_scores"));
+      saveBlob(blob, excelFileName(batch, table.experiment_number, "assignment_scores"));
     } catch {
       setDownloadError("The download failed. Please try again.");
     } finally {
@@ -98,7 +98,7 @@ export default function InstructorAssignmentStatus() {
         </h1>
         {table.has_assignment && (
           <button type="button" className="btn btn--primary btn--sm" onClick={handleDownload} disabled={downloading}>
-            {downloading ? "Preparing…" : "Download CSV"}
+            {downloading ? "Preparing…" : "Download Excel"}
           </button>
         )}
       </div>

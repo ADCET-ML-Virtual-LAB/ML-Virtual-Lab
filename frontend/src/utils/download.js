@@ -1,4 +1,4 @@
-// Save a Blob as a file and build a safe CSV file name for the instructor downloads.
+// Save a Blob as a file and build a safe Excel file name for the instructor downloads.
 export function saveBlob(blob, filename) {
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -10,8 +10,8 @@ export function saveBlob(blob, filename) {
   window.URL.revokeObjectURL(url);
 }
 
-// Mirrors the server's file name: batch_<name>_<year>_experiment_<n>_<kind>.csv
-export function csvFileName(batch, experimentNumber, kind) {
+// Mirrors the server's file name: batch_<name>_<year>_experiment_<n>_<kind>.xlsx
+export function excelFileName(batch, experimentNumber, kind) {
   const safe = `${batch.name}_${batch.academic_year}`.replace(/[^A-Za-z0-9_-]+/g, "_");
-  return `batch_${safe}_experiment_${experimentNumber}_${kind}.csv`;
+  return `batch_${safe}_experiment_${experimentNumber}_${kind}.xlsx`;
 }

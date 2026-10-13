@@ -43,13 +43,17 @@ def test_sections_reflect_saved_completion(client, db):
     student = make_user(db)
     client.post(f"/experiments/{exp.slug}/sections/overview/complete", headers=student.headers)
     submit_quiz(client, student, exp, "pre")
-    add_code_submission(db, student, exp, SubmissionStatus.mismatched)
+    add_code_submission(db, student, exp, SubmissionStatus.matched)
 
     done = {s["key"]: s["completed"] for s in _row(client, student)["sections"]}
     assert done["overview"] is True
     assert done["pre-quiz"] is True
-    assert done["code-exercise"] is False  # a mismatched attempt is not a tick
+    assert done["code-exercise"] is False  # a code submission, even a match, is not a tick
     assert done["assignment"] is False
+
+    client.post(f"/experiments/{exp.slug}/sections/code-exercise/complete", headers=student.headers)
+    done = {s["key"]: s["completed"] for s in _row(client, student)["sections"]}
+    assert done["code-exercise"] is True  # only Mark Completed ticks it
 
 
 def test_experiment_without_assignment_has_no_assignment_section(client, db):

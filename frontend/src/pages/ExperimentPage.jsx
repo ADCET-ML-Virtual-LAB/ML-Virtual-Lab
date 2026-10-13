@@ -18,7 +18,7 @@ const SECTIONS = [
   { id: "video", label: SECTION_LABELS.video, completionKey: "video" },
   { id: "theory", label: SECTION_LABELS.theory, completionKey: "theory" },
   { id: "guided-lab", label: SECTION_LABELS["guided-lab"], completionKey: "guided-lab" },
-  { id: "code-editor", label: SECTION_LABELS["code-exercise"] },
+  { id: "code-editor", label: SECTION_LABELS["code-exercise"], completionKey: "code-exercise" },
   { id: "post-quiz", label: SECTION_LABELS["post-quiz"] },
   { id: "assignment", label: SECTION_LABELS.assignment },
 ];
@@ -158,14 +158,12 @@ export default function ExperimentPage() {
                 : section.id === "assignment"
                   ? assignment
                   : null;
-            // Every tick comes from saved backend state: manual sections from
-            // section_completions, Code Exercise from a saved matched result, and
-            // quizzes/assignment from their saved submission.
+            // Every tick comes from saved backend state: manual sections (including the
+            // Code Exercise) from section_completions, quizzes/assignment from their
+            // saved submission.
             const complete = section.completionKey
               ? Boolean(completions[section.completionKey])
-              : section.id === "code-editor"
-                ? Boolean(experiment.code_exercise_completed)
-                : Boolean(sectionQuiz?.my_submitted);
+              : Boolean(sectionQuiz?.my_submitted);
             const active = activeSection === section.id;
             return (
               <li key={section.id}>
@@ -288,13 +286,12 @@ export default function ExperimentPage() {
         {activeSection === "code-editor" && (
           <section className="exp-section">
             <h2 className="exp-section__heading">Code Exercise</h2>
-            <p className="exp-section__intro">Write and run Python code in your browser, then submit the output for validation. This section is complete only after a matching result has been saved.</p>
-            {isStudent && experiment.code_exercise_completed && (
-              <div className="alert alert--success" role="status">
-                ✓ Completed — a matching result has been saved for this exercise.
-              </div>
+            <p className="exp-section__intro">Write and run Python code in your browser. Submit shows whether your result matches the expected result. Click Mark Completed when you have finished this exercise.</p>
+            {experiment.code_problem_statement && (
+              <div className="exp-notes exp-problem" dangerouslySetInnerHTML={{ __html: simpleMarkdown(experiment.code_problem_statement) }} />
             )}
-            <CodeEditor experiment={experiment} onSubmitted={refreshExperiment} canSubmit={isStudent} />
+            <CodeEditor experiment={experiment} canSubmit={isStudent} />
+            {completionControl("code-exercise")}
           </section>
         )}
 

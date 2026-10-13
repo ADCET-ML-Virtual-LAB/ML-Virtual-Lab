@@ -14,15 +14,14 @@ students get 403) and is scoped to the batch the instructor is assigned to.
   GET /instructor/batches/{batch_id}/experiments/{experiment_id}/assignment-status/{student_id}
 
 Pre-Quiz and Post-Quiz scores are never returned. Saved assignment scores are
-shown immediately (no reveal policy), as a percentage.
+shown immediately (no reveal policy), as a percentage. Downloads are Excel (.xlsx)
+files for the open experiment or assignment only.
 """
-import csv
-import io
 import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_roles
@@ -53,6 +52,7 @@ from app.schemas.instructor import (
     InstructorSubmissionOut,
 )
 from app.schemas.quiz import OptionOutAdmin, QuizOutAdmin
+from app.services.exports import XLSX_MEDIA_TYPE, build_sheet
 from app.services.progress import derive_experiment_progress
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
@@ -127,26 +127,22 @@ def _submission(student_id: uuid.UUID, quiz: Quiz, db: Session) -> QuizSubmissio
     )
 
 
-def _percent(score: float | None) -> str:
-    return "Not Submitted" if score is None else f"{score:g}%"
-
-
-def _safe_cell(value: str) -> str:
-    """Stop spreadsheet apps treating a text cell as a formula."""
-    return "'" + value if value[:1] in ("=", "+", "-", "@") else value
-
-
-def _csv_response(batch: Batch, exp: Experiment, kind: str, header: list[str], rows: list[list[str]]):
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(header)
-    for row in rows:
-        writer.writerow([_safe_cell(str(cell)) for cell in row])
+def _xlsx_response(
+    batch: Batch, exp: Experiment, kind: str, sheet_title: str,
+    headers: list[str], rows: list[list], widths: list[float],
+):
+    details = [
+        ("Batch", batch.name),
+        ("Academic Year", batch.academic_year),
+        ("Experiment No.", str(exp.order_index)),
+        ("Experiment Name", exp.title),
+    ]
+    content = build_sheet(sheet_title, details, headers, rows, widths)
     safe = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{batch.name}_{batch.academic_year}")
-    filename = f"batch_{safe}_experiment_{exp.order_index}_{kind}.csv"
-    return StreamingResponse(
-        iter([buffer.getvalue()]),
-        media_type="text/csv",
+    filename = f"batch_{safe}_experiment_{exp.order_index}_{kind}.xlsx"
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -259,13 +255,11 @@ def export_experiment_status(
 ):
     batch = _own_batch(batch_id, user, db)
     exp = _published_experiment(experiment_id, db)
-    rows = [
-        [batch.name, batch.academic_year, exp.order_index, exp.title,
-         r.urn or "", r.full_name, STATUS_LABEL[r.status]]
-        for r in _status_rows(batch.id, exp, db)
-    ]
-    header = ["Batch", "Academic Year", "Experiment No.", "Experiment Title", "URN", "Student Name", "Status"]
-    return _csv_response(batch, exp, "status", header, rows)
+    rows = [[r.urn or "", r.full_name, STATUS_LABEL[r.status]] for r in _status_rows(batch.id, exp, db)]
+    return _xlsx_response(
+        batch, exp, "status", "Students Status",
+        ["URN", "Student Name", "Status"], rows, [16, 40, 22],
+    )
 
 
 # ── Assignment Status (per experiment's assignment) ───────────────────────────
@@ -299,12 +293,13 @@ def export_assignment_status(
     if quiz is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This experiment has no assignment")
     rows = [
-        [batch.name, batch.academic_year, exp.order_index, exp.title,
-         r.urn or "", r.full_name, _percent(r.score)]
+        [r.urn or "", r.full_name, r.score if r.submitted else "Not Submitted"]
         for r in _assignment_rows(batch.id, quiz, db)
     ]
-    header = ["Batch", "Academic Year", "Experiment No.", "Experiment Title", "URN", "Student Name", "Marks (%)"]
-    return _csv_response(batch, exp, "assignment_scores", header, rows)
+    return _xlsx_response(
+        batch, exp, "assignment_scores", "Assignment Scores",
+        ["URN", "Student Name", "Marks (%)"], rows, [16, 40, 22],
+    )
 
 
 @router.get(

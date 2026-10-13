@@ -1,8 +1,9 @@
 """Progress derivation and assignment-prerequisite checks.
 
-Manually tracked sections are read from SectionCompletion rows. Pre/post quiz
-completion comes from best-score-only StudentQuizProgress rows. Code exercise and
-assignment completion are derived from their persisted result/submission records.
+Manually tracked sections (including the Code Exercise) are read from
+SectionCompletion rows. Pre/post quiz completion comes from best-score-only
+StudentQuizProgress rows. Assignment completion is derived from the accepted
+submission record. Code submissions never affect progress.
 """
 import uuid
 from datetime import datetime, timezone
@@ -10,7 +11,6 @@ from typing import Sequence
 
 from sqlalchemy.orm import Session
 
-from app.models.code_submission import CodeSubmission, SubmissionStatus
 from app.models.experiment import Experiment
 from app.models.quiz import Quiz, QuizSubmission, QuizType, RevealPolicy
 from app.models.student_quiz_progress import StudentQuizProgress
@@ -24,19 +24,6 @@ from app.services.section_tracking import (
 _NS = "not_started"
 _IP = "in_progress"
 _CO = "completed"
-
-
-def is_code_exercise_completed(
-    student_id: uuid.UUID, exp: Experiment, db: Session
-) -> bool:
-    """True when the experiment has a code exercise and a matching result is saved."""
-    if exp.evaluation_spec is None:
-        return False
-    return db.query(CodeSubmission.id).filter(
-        CodeSubmission.student_id == student_id,
-        CodeSubmission.experiment_id == exp.id,
-        CodeSubmission.status == SubmissionStatus.matched,
-    ).first() is not None
 
 
 def derive_experiment_progress(
@@ -75,9 +62,9 @@ def derive_experiment_progress(
             ).first() is not None
             pre_quiz_status = _CO if has_sub else _NS
 
-        # Code exercise: ticked only when a matching result is saved. A failed or
-        # mismatched attempt does not count as progress (only ticks count).
-        code_status = _CO if is_code_exercise_completed(student_id, exp, db) else _NS
+        # Code exercise: ticked only by Mark Completed, like the other manual
+        # sections. Submitting code (matched or not) does not change progress.
+        code_status = section_statuses["code-exercise"]
 
         # Post-quiz: the single best-score record means at least one submission occurred.
         post_q = quizzes_by_type.get(QuizType.post.value)
@@ -108,9 +95,9 @@ def derive_experiment_progress(
                 if student_view or score_is_revealed(asgn_q):
                     assignment_score = latest_sub.score
 
-        # Every configured section in the approved order. Static sections are
-        # always configured; quiz, code and assignment sections only when they
-        # exist for this experiment.
+        # Every configured section in the approved order. Manually tracked
+        # sections (including the Code Exercise) are always configured; quiz and
+        # assignment sections only when they exist for this experiment.
         sections: list[tuple[str, str]] = [
             ("overview", section_statuses["overview"]),
             ("aim-objectives", section_statuses["aim-objectives"]),
@@ -121,9 +108,8 @@ def derive_experiment_progress(
             ("video", section_statuses["video"]),
             ("theory", section_statuses["theory"]),
             ("guided-lab", section_statuses["guided-lab"]),
+            ("code-exercise", section_statuses["code-exercise"]),
         ]
-        if exp.evaluation_spec is not None:
-            sections.append(("code-exercise", code_status))
         if post_q:
             sections.append(("post-quiz", post_quiz_status))
         if asgn_q:
@@ -169,8 +155,8 @@ def missing_assignment_prerequisites(
 ) -> list[str]:
     """Return unmet prerequisites in the same order as the student workflow.
 
-    All currently defined manual sections are required. Pre/post quizzes and the
-    Code Exercise are prerequisites when the corresponding activity is defined.
+    All manually tracked sections (including the Code Exercise) are required.
+    Pre/post quizzes are prerequisites when they are defined.
     This function is shared by experiment details, quiz access and submission.
     """
     completed_static = get_completed_section_keys(student_id, exp.id, db)
@@ -186,7 +172,6 @@ def missing_assignment_prerequisites(
         StudentQuizProgress.student_id == student_id,
         StudentQuizProgress.quiz_id == post_q.id,
     ).first() is not None
-    code_matched = is_code_exercise_completed(student_id, exp, db)
 
     # The order reflects the existing experiment flow. Change it only together
     # with the approved section ordering in the student workspace.
@@ -197,7 +182,7 @@ def missing_assignment_prerequisites(
         ("video", STATIC_SECTION_LABELS["video"], True),
         ("theory", STATIC_SECTION_LABELS["theory"], True),
         ("guided-lab", STATIC_SECTION_LABELS["guided-lab"], True),
-        ("code-exercise", "Code Exercise (output must match the expected result)", exp.evaluation_spec is not None and not code_matched),
+        ("code-exercise", STATIC_SECTION_LABELS["code-exercise"], True),
         ("post-quiz", "Post-Quiz", post_q is not None and not post_submitted),
     ]
 

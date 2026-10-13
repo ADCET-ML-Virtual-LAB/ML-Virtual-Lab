@@ -96,7 +96,7 @@ def add_code_submission(db, user, exp, status: SubmissionStatus):
     db.commit()
 
 
-STATIC_SECTION_KEYS = ("overview", "aim-objectives", "theory", "video", "guided-lab")
+STATIC_SECTION_KEYS = ("overview", "aim-objectives", "theory", "video", "guided-lab", "code-exercise")
 
 
 def complete_static_sections(client, user, exp):
@@ -111,11 +111,10 @@ def complete_static_sections(client, user, exp):
 
 
 def unlock_assignment(client, db, user, exp):
-    """Complete static sections, quizzes and matching code required to unlock."""
+    """Mark every manual section (including the Code Exercise) and submit both quizzes."""
     complete_static_sections(client, user, exp)
     assert submit_quiz(client, user, exp, "pre").status_code == 201
     assert submit_quiz(client, user, exp, "post").status_code == 201
-    add_code_submission(db, user, exp, SubmissionStatus.matched)
 
 
 def get_experiment(client, user, exp) -> dict:

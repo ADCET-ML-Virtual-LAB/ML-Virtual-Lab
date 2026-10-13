@@ -1,7 +1,8 @@
 """Canonical keys and database helpers for required manual sections.
 
-Keep this list aligned with the student experiment workspace. Assessment sections
-(pre-quiz, post-quiz, code exercise, assignment) deliberately do not belong here.
+Keep this list aligned with the student experiment workspace. The Code Exercise is
+tracked here too (Mark Completed); a matched submission does not complete it.
+Quizzes and the assignment deliberately do not belong here.
 """
 
 import uuid
@@ -17,6 +18,7 @@ STATIC_SECTION_LABELS: dict[str, str] = {
     "theory": "Theory / Reading Material",
     "video": "Video",
     "guided-lab": "Guided Lab",
+    "code-exercise": "Code Exercise",
 }
 
 

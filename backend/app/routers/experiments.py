@@ -31,7 +31,6 @@ from app.schemas.experiment import (
 from app.schemas.section_completion import SectionCompletionOut
 from app.services.progress import (
     assignment_review,
-    is_code_exercise_completed,
     missing_assignment_prerequisites,
     student_quiz_status,
 )
@@ -109,7 +108,6 @@ def get_experiment(
     # Student-only saved quiz state: best score for pre/post, accepted score for assignment.
     if current_user.role == UserRole.student:
         detail.section_completions = get_section_completion_map(current_user.id, exp.id, db)
-        detail.code_exercise_completed = is_code_exercise_completed(current_user.id, exp, db)
         quizzes_by_id = {q.id: q for q in exp.quizzes}
         for quiz_out in detail.quizzes:
             quiz = quizzes_by_id[quiz_out.id]

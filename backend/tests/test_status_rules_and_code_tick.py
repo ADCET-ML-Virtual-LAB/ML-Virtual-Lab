@@ -1,4 +1,4 @@
-"""Tests for the decided status rule, the Code Exercise tick and fixed experiment numbers."""
+"""Tests for the decided status rule, the Code Exercise Mark Completed tick and fixed experiment numbers."""
 import uuid
 
 from app.models import SubmissionStatus, UserRole
@@ -17,27 +17,35 @@ def _overall(client, student) -> str:
     return rows[0]["overall_status"]
 
 
-def test_code_exercise_tick_only_after_matched_result_is_saved(client, db):
+def _code_ticked(client, student, exp) -> bool:
+    return get_experiment(client, student, exp)["section_completions"]["code-exercise"]
+
+
+def test_code_exercise_tick_only_after_mark_completed(client, db):
     exp = make_experiment(db)
     student = make_user(db)
+    assert _code_ticked(client, student, exp) is False
 
-    assert get_experiment(client, student, exp)["code_exercise_completed"] is False
-
+    # Submitting code never ticks the section, whether it matches or not.
     add_code_submission(db, student, exp, SubmissionStatus.mismatched)
-    assert get_experiment(client, student, exp)["code_exercise_completed"] is False
-
     add_code_submission(db, student, exp, SubmissionStatus.matched)
-    assert get_experiment(client, student, exp)["code_exercise_completed"] is True
+    assert _code_ticked(client, student, exp) is False
+
+    resp = client.post(
+        f"/experiments/{exp.slug}/sections/code-exercise/complete", headers=student.headers
+    )
+    assert resp.status_code == 200 and resp.json()["completed"] is True
+    assert _code_ticked(client, student, exp) is True
 
 
 def test_code_exercise_tick_not_shown_to_other_students(client, db):
     exp = make_experiment(db)
     student_a = make_user(db)
     student_b = make_user(db)
-    add_code_submission(db, student_a, exp, SubmissionStatus.matched)
+    client.post(f"/experiments/{exp.slug}/sections/code-exercise/complete", headers=student_a.headers)
 
-    assert get_experiment(client, student_a, exp)["code_exercise_completed"] is True
-    assert get_experiment(client, student_b, exp)["code_exercise_completed"] is False
+    assert _code_ticked(client, student_a, exp) is True
+    assert _code_ticked(client, student_b, exp) is False
 
 
 def test_status_not_started_when_nothing_is_ticked(client, db):
@@ -45,9 +53,9 @@ def test_status_not_started_when_nothing_is_ticked(client, db):
     student = make_user(db)
     assert _overall(client, student) == "not_started"
 
-    # A failed or mismatched code attempt is not a tick, so it is not progress.
+    # A code submission (matched or not) is not a tick, so it is not progress.
     add_code_submission(db, student, exp, SubmissionStatus.mismatched)
-    add_code_submission(db, student, exp, SubmissionStatus.error)
+    add_code_submission(db, student, exp, SubmissionStatus.matched)
     assert _overall(client, student) == "not_started"
 
 

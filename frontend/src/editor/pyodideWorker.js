@@ -2,7 +2,9 @@
  * pyodideWorker.js — runs in a Web Worker so student code can't freeze the UI.
  *
  * Messages received:
- *   { type: "run", code: string, allowedImports: string[] }
+ *   { type: "run", code: string, allowedImports: string[], files?: { [name]: text } }
+ *   files are written into the working directory before the code runs, so the student's
+ *   code can read them (for example pd.read_csv("Salary_dataset.csv")).
  *
  * Messages sent:
  *   { type: "ready" }
@@ -28,10 +30,15 @@ async function initPyodide() {
 const pyodideReady = initPyodide();
 
 self.onmessage = async (event) => {
-  const { type, code, allowedImports } = event.data;
+  const { type, code, allowedImports, files } = event.data;
   if (type !== "run") return;
 
   await pyodideReady;
+
+  // Make the experiment's dataset file(s) available to the student's code.
+  for (const [name, text] of Object.entries(files || {})) {
+    pyodide.FS.writeFile(name, text);
+  }
 
   // ── Import whitelist check (AST-level) ─────────────────────────────────────
   // We do a quick Python-side AST walk to block disallowed imports before

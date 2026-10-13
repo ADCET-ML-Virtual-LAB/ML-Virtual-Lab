@@ -5,9 +5,9 @@ making changes — it explains decisions that aren't obvious from the code
 alone.
 
 ## What this is
-A web-based ML Virtual Lab: ~10 classical ML experiments (no deep
-learning), each with theory, a video, notes, a guided/parametric lab, a
-free-form code editor, a pre-quiz, a post-quiz, and a graded assignment.
+A web-based ML Virtual Lab: 10 Machine Learning experiments, each with an
+overview, aim, a video, theory, a guided lab, a code exercise, a pre-quiz, a
+post-quiz, and a graded assignment.
 Linked from the university LMS but run as an independent app — its own
 accounts, data, and hosting.
 
@@ -51,10 +51,11 @@ security requirements — revisit if that stops being true.
 **Progress is derived from persisted activity records.** Manual static-section
 completion is stored in `SectionCompletion`; pre/post quiz submitted status and
 best score are stored in one `StudentQuizProgress` row per student/quiz; accepted
-assignment submissions are stored in `QuizSubmission`; code-exercise results are
-stored in `CodeSubmission`. Overall experiment progress is derived on read from
-these records in `app/services/progress.py`. Guided Lab is tracked through the
-same manual Mark Completed mechanism as other required static sections.
+assignment submissions are stored in `QuizSubmission`. Code submissions
+(`CodeSubmission`) are kept for feedback only and never affect progress. Overall
+experiment progress is derived on read from these records in
+`app/services/progress.py`. Guided Lab and Code Exercise are tracked through the
+same manual Mark Completed mechanism as the other manual sections.
 
 **IDs are UUIDs, not auto-increment ints** — avoids sequential IDs being
 guessable/enumerable in a public-ish API.
@@ -73,19 +74,27 @@ backend/
     core/        # security.py (hashing/JWT), deps.py (auth deps), mailer.py
     models/      # SQLAlchemy ORM — one file per module's tables
     schemas/     # Pydantic request/response models — mirrors models/
-    routers/     # one file per module; thin — logic stays in the router
-                 # function for now (no service layer yet beyond mailer)
+    routers/     # one file per module (auth, batches, experiments, quizzes,
+                 # code_submissions, dashboards, instructor)
+    services/    # progress.py (status/prerequisite rules), section_tracking.py,
+                 # exports.py (Excel downloads)
     config.py    # all env vars, one Settings object
     database.py  # engine/session/Base
     main.py      # FastAPI app + router registration
-  scripts/       # one-off CLI scripts (create_admin.py, seeders)
+  scripts/       # one-off CLI scripts: create_admin, seeders, migrate_*,
+                 # load_linear_regression (+ its content module)
+  tests/         # pytest suite
   requirements.txt / requirements-dev.txt
 frontend/
   src/
-    pages/       # one file per route in App.jsx
+    pages/       # one file per route in App.jsx (student, instructor, admin)
     api/         # axios calls, one file per backend module
     editor/      # Monaco + Pyodide (client-side execution)
-    components/  # shared UI (Layout, etc.)
+    components/  # shared UI (Layout, Navbar, QuizPanel, DataTable, AnswerKey, ...)
+    constants/   # section names and order
+    content/     # editable Home page text (student and instructor)
+    utils/       # shared helpers (content formatting, downloads, score format)
+docs/            # STUDENT_CONSOLE.md, INSTRUCTOR_CONSOLE.md, DEVELOPMENT_HISTORY.md
 ```
 
 ## Conventions
@@ -101,8 +110,9 @@ frontend/
   role/ownership failures, 404 for missing resources.
 - **New tables** need: `UUIDPKMixin` + (usually) `TimestampMixin` from
   `app/models/common.py`, an entry in `app/models/__init__.py`'s
-  `__all__`, and — until Alembic is added — a re-run of `init_db.py`
-  against a *fresh* DB (it only does `create_all`, no migrations yet).
+  `__all__`, and — as there is no Alembic — a one-off script in
+  `backend/scripts/` (`migrate_*.py`, safe to re-run) for databases that
+  already exist. A fresh DB gets everything from `init_db.py` (`create_all`).
 - **New endpoints**: add the Pydantic schema in `schemas/`, the route in
   the matching `routers/` file, and update `openapi.yaml` in the same PR
   — the spec is meant to stay accurate, not aspirational.
@@ -131,17 +141,24 @@ cd frontend && npm install && npm run dev
 A pytest suite lives in `backend/tests` (SQLite test DB via `conftest.py`).
 Run it from `backend` with the virtual environment active: `python -m pytest -q`.
 It covers section completion, quiz best-score rules, assignment locking, status
-rules, role access and the instructor dashboard. New endpoints should add tests
-there and also be checked manually via `/docs`. The frontend has no automated
-tests yet; `npm run build` is the minimum check.
+rules, role access, the instructor console API and Excel downloads, one instructor
+per batch, the code problem statement and the Linear Regression experiment loader.
+New endpoints should add tests there and also be checked manually via `/docs`.
+The frontend has no automated tests yet; `npm run build` is the minimum check.
 
-## What's implemented vs. stub (keep this section updated)
-- **Done**: auth (login/me/change-password), batches (create/list/get,
-  student upload + onboarding email, instructor assignment), experiments
-  (including their quizzes), quizzes (submit + assignment lock),
-  code_submissions, dashboards (student, instructor, instructor CSV).
-- `openapi.yaml` documents the intended design; its `x-status` markers can lag
-  behind the code, so check the router file itself for what's actually live.
+## What's implemented
+- **Backend**: auth (login/me/change-password), batches (create/list/get, student upload
+  + onboarding email, instructor assignment with one instructor per batch), experiments
+  (with their quizzes), quizzes (submit + assignment lock), code_submissions, student
+  dashboard, the instructor console API (`/instructor/*`).
+- **Frontend**: student console, instructor console, change-password, an admin panel from
+  the original build (final admin console pending).
+- Consoles are described in `docs/STUDENT_CONSOLE.md` and `docs/INSTRUCTOR_CONSOLE.md`;
+  pending work is listed in the README ("Pending work").
+- `openapi.yaml` documents the API; its `x-status` markers can lag behind the code, so
+  check the router file itself for what is actually live.
+- `GET /dashboards/instructor` and `GET /dashboards/instructor/export` (the older
+  instructor dashboard) still exist, for instructors only. No page uses them any more.
 
 ## Role and quiz rules (keep in sync with the code)
 - **Roles**: student, instructor, admin. Students take quizzes, submit code and
@@ -157,32 +174,39 @@ tests yet; `npm run build` is the minimum check.
 - **Instructor views**: published experiments only; read-only content with answer
   keys; Students Status (Not Attempted / In Progress / Completed by the student
   tick rule); Assignment Status with saved percentage immediately (reveal policy
-  ignored) and per-student submission review; CSV covers only the open
-  experiment or assignment.
-- **What instructors see**: per student and experiment, an overall badge (Not
-  started / Ongoing / Completed) plus the assignment status and score. The CSV
-  has only the assignment status and score. Pre/post quiz results never go to
-  instructors, though completing them still counts toward the overall status.
+  ignored) and per-student submission review; the download is an Excel (.xlsx)
+  file (`app/services/exports.py`, openpyxl) for only the open experiment or
+  assignment, with batch, academic year, experiment number and name in merged
+  cells on top of a URN / Student Name / Status-or-Marks table.
 - **Pre/post quizzes**: self-assessment, unlimited attempts. Persist one best-score
   record per student/quiz; do not store individual attempt or answer history. The
   student sees only the best score. Current-submission correctness may be returned
   transiently for immediate feedback.
 - **Assignment**: one accepted submission only (409 on a second). Its score is
   visible to the submitting student immediately. It is locked, and its
-  questions are hidden, until all required manual sections are marked complete,
-  the pre-quiz and post-quiz are submitted, and the code exercise output *matches*
-  the stored result (see
-  `missing_assignment_prerequisites` in `app/services/progress.py`). The
-  server enforces this; the UI only mirrors it. A step the experiment does not
-  have (no quiz, or no expected result) is skipped.
+  questions are hidden, until all manual sections (including the Code Exercise)
+  are marked complete and the pre-quiz and post-quiz are submitted (see
+  `missing_assignment_prerequisites` in `app/services/progress.py`). A code
+  match is not required. The server enforces this; the UI only mirrors it. A
+  quiz the experiment does not have is skipped.
+- **Code Exercise**: completed with **Mark Completed** (section key `code-exercise`), like Theory
+  and Video, and counted for every experiment. The editor and Submit button remain: the student's
+  answer is the value of the variable `result`, computed in the browser and compared by the
+  backend with the hidden `ExperimentEvaluationSpec` result (exact comparison for now), and
+  Submit only shows matched or mismatched. A match does not tick the section.
+  `experiments.code_problem_statement` (optional) is shown above the editor and
+  `experiments.code_dataset_url` (optional) names a dataset file that the code runner copies into
+  the browser's Python environment under its file name. The expected result is never sent to students.
+- **Experiment content**: `seed_experiments.py` creates demo content; `scripts/load_linear_regression.py`
+  (content in `scripts/linear_regression_content.py`) replaces experiment 8 with the real
+  Linear Regression experiment and is safe to re-run.
 - **Experiments are fixed (1-10)**: `order_index` is the experiment number. It must be
   1-10, unique, and cannot be changed after creation (the update schema ignores it).
-- **Experiment status (ticks only)**: Not started = no section ticked in the database;
+- **Experiment status (ticks only)**: Not Attempted (`not_started`) = no section ticked in the database;
   In progress = at least one ticked but not all; Completed = every configured section
   ticked, including the assignment. A section is ticked when: manual sections have a
-  saved `SectionCompletion`; a quiz is submitted at least once; the Code Exercise has a
-  saved *matched* result (failed/mismatched attempts are not progress); the assignment
-  has an accepted submission.
+  saved `SectionCompletion` (this includes the Code Exercise); a quiz is submitted at least
+  once; the assignment has an accepted submission. Code submissions are not progress.
 - **Assignment lock check**: the student UI re-fetches the experiment from the backend
   every time the Assignment is clicked; the server also re-checks on view and submit.
 - **Overall progress (View Progress)**: completed sections / all configured sections across
@@ -198,6 +222,9 @@ tests yet; `npm run build` is the minimum check.
 
 
 ## Known gaps (deferred to the admin phase)
+Other pending items (Home text, Profile fields, admin console, code-exercise matching rules,
+remaining experiment content) are listed in the README under "Pending work".
+
 - `GET /quizzes/{quiz_id}` still returns answer keys to any instructor or admin, with no
   batch check and no published-experiment check. The student UI does not call it and the
   instructor console does not use it (it uses `/instructor/*`). Students never receive

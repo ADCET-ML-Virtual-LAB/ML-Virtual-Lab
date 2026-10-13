@@ -1,7 +1,9 @@
 """Instructor console API: instructors only, batch-scoped, no pre/post scores, one instructor per batch."""
+import io
 import uuid
 
 import pytest
+from openpyxl import load_workbook
 from sqlalchemy.exc import IntegrityError
 
 from app.models import Batch, Enrollment, Experiment, InstructorAssignment, User, UserRole
@@ -35,6 +37,15 @@ def _number(db, exp, number=3):
 def _submitted_assignment(client, db, student, exp, correct):
     unlock_assignment(client, db, student, exp)
     assert submit_quiz(client, student, exp, "assignment", correct=correct).status_code == 201
+
+
+def _sheet(resp):
+    """Open a downloaded .xlsx response: (worksheet, rows as tuples)."""
+    assert resp.status_code == 200
+    assert "spreadsheetml" in resp.headers["content-type"]
+    assert resp.headers["content-disposition"].rstrip('"').endswith(".xlsx")
+    ws = load_workbook(io.BytesIO(resp.content)).active
+    return ws, list(ws.iter_rows(values_only=True))
 
 
 def _url(batch_id, exp, tail):
@@ -183,22 +194,35 @@ def test_status_table_never_exposes_quiz_scores(client, db):
         assert "best_score" not in text and "pre_quiz" not in text and "post_quiz" not in text
 
 
-def test_status_csv_covers_only_the_open_experiment(client, db):
+def test_status_excel_has_merged_details_on_top_and_only_the_open_experiment(client, db):
     me = make_user(db, UserRole.instructor)
-    batch_id = _batch(db, me)
+    batch_id = _batch(db, me, name="TE-CSE-A")
     exp, other_exp = make_experiment(db), make_experiment(db)
     _number(db, exp, 1)
     _number(db, other_exp, 2)
     _enrol(db, batch_id, "Asha Patil", "CS001")
 
-    resp = client.get(_url(batch_id, exp, "status/export"), headers=me.headers)
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/csv")
-    lines = resp.text.strip().splitlines()
-    assert lines[0] == "Batch,Academic Year,Experiment No.,Experiment Title,URN,Student Name,Status"
-    assert len(lines) == 2
-    assert "CS001,Asha Patil,Not Attempted" in lines[1]
-    assert ",1,Linear Regression," in lines[1]
+    ws, rows = _sheet(client.get(_url(batch_id, exp, "status/export"), headers=me.headers))
+    assert [r[0] for r in rows[:4]] == [
+        "Batch: TE-CSE-A", "Academic Year: 2026-27", "Experiment No.: 1", "Experiment Name: Linear Regression",
+    ]
+    assert {str(r) for r in ws.merged_cells.ranges} == {"A1:C1", "A2:C2", "A3:C3", "A4:C4"}
+    assert rows[5] == ("URN", "Student Name", "Status")
+    assert rows[6:] == [("CS001", "Asha Patil", "Not Attempted")]  # one student, one row, nothing else
+    # URN small, Name large, Status medium
+    urn, name, status = (ws.column_dimensions[c].width for c in "ABC")
+    assert urn < status < name
+
+
+def test_excel_text_cells_are_never_formulas(client, db):
+    me = make_user(db, UserRole.instructor)
+    batch_id = _batch(db, me)
+    exp = make_experiment(db)
+    _enrol(db, batch_id, "=1+1", "CS001")
+
+    ws, rows = _sheet(client.get(_url(batch_id, exp, "status/export"), headers=me.headers))
+    cell = next(c for row in ws.iter_rows() for c in row if c.value == "=1+1")
+    assert cell.data_type == "s"
 
 
 # ── Assignment Status and submission ──────────────────────────────────────────
@@ -217,10 +241,9 @@ def test_assignment_status_shows_percentage_or_not_submitted(client, db):
     assert rows["Done"]["submitted"] is True and rows["Done"]["score"] == 100.0
     assert rows["Waiting"]["submitted"] is False and rows["Waiting"]["score"] is None
 
-    csv_lines = client.get(_url(batch_id, exp, "assignment-status/export"), headers=me.headers).text.splitlines()
-    assert csv_lines[0].endswith("Student Name,Marks (%)")
-    assert any(line.endswith("Done,100%") for line in csv_lines)
-    assert any(line.endswith("Waiting,Not Submitted") for line in csv_lines)
+    ws, sheet_rows = _sheet(client.get(_url(batch_id, exp, "assignment-status/export"), headers=me.headers))
+    assert sheet_rows[5] == ("URN", "Student Name", "Marks (%)")
+    assert sheet_rows[6:] == [("CS001", "Done", 100), ("CS002", "Waiting", "Not Submitted")]
 
 
 def test_instructor_sees_score_even_with_after_deadline_reveal_policy(client, db):

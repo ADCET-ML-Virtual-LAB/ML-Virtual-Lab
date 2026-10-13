@@ -305,7 +305,7 @@ paths:
       summary: Save a student's Mark Completed for a manual section (students only)
       description: |
         Idempotent. `section_key` is one of overview, aim-objectives, theory, video,
-        guided-lab. The frontend must re-fetch `GET /experiments/{slug}` afterwards;
+        guided-lab, code-exercise. The frontend must re-fetch `GET /experiments/{slug}` afterwards;
         it must not show the tick itself.
       parameters:
         - name: slug
@@ -626,12 +626,12 @@ paths:
   /instructor/batches/{batch_id}/experiments/{experiment_id}/status/export:
     get:
       tags: [instructor]
-      summary: CSV of the open experiment's Students Status only
+      summary: Excel (.xlsx) of the open experiment's Students Status only
       parameters:
         - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: experiment_id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: "CSV: Batch, Academic Year, Experiment No., Experiment Title, URN, Student Name, Status" }
+        "200": { description: "Excel file. Merged rows on top: Batch, Academic Year, Experiment No., Experiment Name; then a table with URN, Student Name, Status." }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -651,12 +651,12 @@ paths:
   /instructor/batches/{batch_id}/experiments/{experiment_id}/assignment-status/export:
     get:
       tags: [instructor]
-      summary: CSV of the open assignment's scores only
+      summary: Excel (.xlsx) of the open assignment's scores only
       parameters:
         - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: experiment_id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: "CSV: Batch, Academic Year, Experiment No., Experiment Title, URN, Student Name, Marks (%) (value or Not Submitted)" }
+        "200": { description: "Excel file. Merged rows on top: Batch, Academic Year, Experiment No., Experiment Name; then a table with URN, Student Name, Marks (%) (number, or Not Submitted)." }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -831,6 +831,8 @@ components:
           nullable: true
           description: Guided-lab input/parameter definition, rendered by the frontend.
         starter_code: { type: string, nullable: true }
+        code_problem_statement: { type: string, nullable: true, description: Shown above the code editor (Theory-style text) }
+        code_dataset_url: { type: string, nullable: true, description: "Dataset file made available to the student's code in the browser, e.g. /datasets/Salary_dataset.csv (served by the frontend)" }
         allowed_imports:
           type: array
           nullable: true
@@ -901,9 +903,6 @@ components:
                 Each assignment quiz in `quizzes` carries `my_review` (per question:
                 selected_option_id, correct_option_ids, is_correct) only for the
                 student who submitted it, and only after submission.
-            code_exercise_completed:
-              type: boolean
-              description: Student-only. True once a matching Code Exercise result has been saved.
 
     Quiz:
       type: object

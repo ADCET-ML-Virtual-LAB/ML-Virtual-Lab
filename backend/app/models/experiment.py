@@ -33,6 +33,13 @@ class Experiment(Base, UUIDPKMixin, TimestampMixin):
     # frontend enforces before running a cell.
     starter_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     allowed_imports: Mapped[Optional[list]] = mapped_column(CustomJSON, nullable=True)  # e.g. ["numpy","pandas"]
+    # Problem statement shown above the code editor (markdown-style text): what to do,
+    # which random seed to use, and that the final answer goes in a variable named `result`.
+    code_problem_statement: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Optional dataset file made available to the student's code in the browser (for example
+    # "/datasets/Salary_dataset.csv", served by the frontend). The file name is the last path
+    # segment, so the student reads it with pd.read_csv("Salary_dataset.csv").
+    code_dataset_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -229,3 +229,12 @@
   color: #92400e;
   border: 1px solid #fde68a;
 }
+
+/* Code Exercise problem statement */
+.exp-problem {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: var(--space-2);
+  margin-bottom: var(--space-2);
+}
