@@ -92,6 +92,7 @@ def seed_experiments():
             
             exp = Experiment(
                 title=exp_data["title"],
+                overview=f"Explore the main concepts and practical workflow of {exp_data['title']}.",
                 slug=exp_data["slug"],
                 aim=exp_data["aim"],
                 objective=exp_data["objective"],

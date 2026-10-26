@@ -7,7 +7,7 @@ the hidden ExperimentEvaluationSpec, records the result and returns feedback.
 Student code NEVER runs on this server.
 
 Endpoints:
-  POST  /code_submissions           record result of a client-executed submission
+  POST  /code_submissions           record result of a client-executed submission (students only)
   GET   /code_submissions           list own submission history for an experiment
 """
 import uuid
@@ -15,11 +15,12 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_active_user
+from app.core.deps import get_current_active_user, require_roles
 from app.database import get_db
 from app.models import User
 from app.models.code_submission import CodeSubmission, SubmissionStatus
 from app.models.experiment import Experiment, ExperimentEvaluationSpec
+from app.models.user import UserRole
 from app.schemas.code_submission import CodeSubmissionCreate, CodeSubmissionOut
 from datetime import datetime, timezone
 
@@ -66,7 +67,7 @@ def _compare_output(client_output, expected_output, tolerance: float | None) -> 
 def create_code_submission(
     payload: CodeSubmissionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_roles(UserRole.student)),
 ):
     """
     Record the result of a client-executed code exercise.

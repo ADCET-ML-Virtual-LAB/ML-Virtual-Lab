@@ -16,6 +16,8 @@ from app.models.quiz import (
     QuizAnswer,
 )
 from app.models.code_submission import CodeSubmission, SubmissionStatus
+from app.models.section_completion import SectionCompletion
+from app.models.student_quiz_progress import StudentQuizProgress
 
 __all__ = [
     "User", "UserRole",
@@ -23,4 +25,5 @@ __all__ = [
     "Experiment", "ExperimentEvaluationSpec",
     "Quiz", "QuizType", "RevealPolicy", "Question", "Option", "QuizSubmission", "QuizAnswer",
     "CodeSubmission", "SubmissionStatus",
+    "SectionCompletion", "StudentQuizProgress",
 ]

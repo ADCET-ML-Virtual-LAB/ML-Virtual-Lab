@@ -26,7 +26,7 @@ export function usePyodide() {
     return worker;
   }
 
-  const run = useCallback((code, allowedImports) => {
+  const run = useCallback((code, allowedImports, files) => {
     return new Promise((resolve, reject) => {
       setStdout([]);
       setResult(null);
@@ -38,7 +38,7 @@ export function usePyodide() {
         const { type, text, output, error } = e.data;
         if (type === "ready") {
           setStatus("running");
-          worker.postMessage({ type: "run", code, allowedImports });
+          worker.postMessage({ type: "run", code, allowedImports, files });
         } else if (type === "stdout") {
           setStdout((prev) => [...prev, text]);
         } else if (type === "result") {
@@ -54,7 +54,7 @@ export function usePyodide() {
       // If worker is already ready (not first run), kick off directly
       if (status === "ready" || status === "done" || status === "error") {
         setStatus("running");
-        worker.postMessage({ type: "run", code, allowedImports });
+        worker.postMessage({ type: "run", code, allowedImports, files });
         // Remove the ready listener above and rely only on result
       }
     });

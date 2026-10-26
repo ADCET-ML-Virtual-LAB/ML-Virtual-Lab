@@ -55,6 +55,18 @@ class QuestionCreate(BaseModel):
 
 # ── Quiz ──────────────────────────────────────────────────────────────────────
 
+class QuestionReview(BaseModel):
+    """A student's own graded answer for one question of a submitted assignment.
+
+    Only ever sent to the student who submitted it, and only after submission,
+    because it reveals the correct option(s).
+    """
+    question_id: uuid.UUID
+    selected_option_id: Optional[uuid.UUID] = None
+    correct_option_ids: list[uuid.UUID] = Field(default_factory=list)
+    is_correct: bool
+
+
 class QuizOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -65,6 +77,13 @@ class QuizOut(BaseModel):
     deadline: Optional[datetime] = None
     reveal_policy: RevealPolicy
     questions: list[QuestionOut]
+    # Student-only state. Pre/post expose only the saved best score; assignments
+    # expose their one accepted score immediately to the student.
+    my_submitted: bool = False
+    my_best_score: Optional[float] = None  # Pre-Quiz/Post-Quiz only
+    my_assignment_score: Optional[float] = None  # Assignment only
+    # Assignment only, and only after this student has submitted it.
+    my_review: Optional[list[QuestionReview]] = None
 
 
 class QuizOutAdmin(BaseModel):
@@ -104,6 +123,12 @@ class QuizAnswerResult(BaseModel):
 
 
 class QuizSubmitResponse(BaseModel):
-    attempt_number: int
-    score: Optional[float] = None  # None for ungraded pre/post
+    # For every submission, score is the score for this specific response.
+    # For pre/post, it is transient response data and is not saved as attempt history.
+    # For assignments, it is the accepted assignment score.
+    score: Optional[float] = None
+    # Pre/post only: saved best score across submissions. Assignments use score instead.
+    best_score: Optional[float] = None
+    # Current-submission correctness is returned for immediate feedback only.
+    # Pre/post answers are not persisted as attempt history.
     answers: list[QuizAnswerResult]

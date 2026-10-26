@@ -39,3 +39,6 @@ class User(Base, UUIDPKMixin, TimestampMixin):
     )
     quiz_submissions = relationship("QuizSubmission", back_populates="student")
     code_submissions = relationship("CodeSubmission", back_populates="student")
+    section_completions = relationship(
+        "SectionCompletion", back_populates="student", cascade="all, delete-orphan"
+    )

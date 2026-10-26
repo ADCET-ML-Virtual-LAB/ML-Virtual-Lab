@@ -8,21 +8,41 @@ import "./CodeEditor.css";
  * CodeEditor — Module 6 (Client-side Code Execution Engine).
  *
  * Props:
- *   experiment    — full experiment object (id, starter_code, allowed_imports)
+ *   experiment    — full experiment object (id, starter_code, allowed_imports, code_dataset_url)
  *   onSubmitted   — callback called with CodeSubmissionOut after successful submit
+ *   canSubmit     — false for instructors/admins: they can run code but not submit it
  */
-export default function CodeEditor({ experiment, onSubmitted }) {
+export default function CodeEditor({ experiment, onSubmitted, canSubmit = true }) {
   const [code, setCode] = useState(experiment?.starter_code || "# Write your Python code here\n");
   const { status, stdout, result, run } = usePyodide();
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState(null);
   const [submitError, setSubmitError] = useState("");
+  const [datasetError, setDatasetError] = useState("");
+
+  // Optional dataset file: copied into the browser's Python environment under its file name.
+  const datasetUrl = experiment?.code_dataset_url || "";
+  const datasetName = datasetUrl
+    ? new URL(datasetUrl, window.location.origin).pathname.split("/").pop()
+    : "";
 
   const isRunning = status === "loading" || status === "running";
 
   async function handleRun() {
     const allowedImports = experiment?.allowed_imports || [];
-    await run(code, allowedImports);
+    setDatasetError("");
+    let files = {};
+    if (datasetUrl) {
+      try {
+        const res = await fetch(datasetUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        files = { [datasetName]: await res.text() };
+      } catch {
+        setDatasetError("Could not load the dataset file. Please check your connection and try again.");
+        return;
+      }
+    }
+    await run(code, allowedImports, files);
   }
 
   async function handleSubmit() {
@@ -62,6 +82,12 @@ export default function CodeEditor({ experiment, onSubmitted }) {
         </div>
       )}
 
+      {datasetName && (
+        <div className="code-editor__imports">
+          <strong>Dataset file:</strong> {datasetName}
+        </div>
+      )}
+
       <div className="code-editor__monaco">
         <Editor
           height="350px"
@@ -86,13 +112,13 @@ export default function CodeEditor({ experiment, onSubmitted }) {
         >
           {isRunning ? statusLabel : "▶ Run"}
         </button>
-        {result && (
+        {result && canSubmit && (
           <button
             className="btn btn--ghost"
             onClick={handleSubmit}
             disabled={submitting}
           >
-            {submitting ? "Submitting…" : "Submit for feedback"}
+            {submitting ? "Submitting…" : "Submit"}
           </button>
         )}
         <span className={`code-editor__status code-editor__status--${status}`}>
@@ -129,6 +155,11 @@ export default function CodeEditor({ experiment, onSubmitted }) {
       )}
 
       {submitError && <div className="alert alert--error">{submitError}</div>}
+      {datasetError && <div className="alert alert--error">{datasetError}</div>}
+
+      {!canSubmit && (
+        <p className="code-editor__note">View only: instructors and admins can run code but not submit it.</p>
+      )}
 
       {/* Note about client-side execution */}
       <p className="code-editor__note">

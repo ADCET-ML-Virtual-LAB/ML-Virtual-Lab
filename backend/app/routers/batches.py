@@ -61,18 +61,26 @@ def create_batch(
 @router.get("", response_model=list[BatchOut])
 def list_batches(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
+    user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
 ):
-    return db.query(Batch).order_by(Batch.created_at.desc()).all()
+    """Admin sees every batch; an instructor sees only the batches they are assigned to."""
+    query = db.query(Batch)
+    if user.role == UserRole.instructor:
+        query = query.join(InstructorAssignment, InstructorAssignment.batch_id == Batch.id).filter(
+            InstructorAssignment.instructor_id == user.id
+        )
+    return query.order_by(Batch.created_at.desc()).all()
 
 
 @router.get("/{batch_id}", response_model=BatchOut)
 def get_batch(
     batch_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
+    user: User = Depends(require_roles(UserRole.admin, UserRole.instructor)),
 ):
-    return _get_batch_or_404(batch_id, db)
+    batch = _get_batch_or_404(batch_id, db)
+    _assert_can_manage_batch(batch.id, user, db)
+    return batch
 
 
 @router.post("/{batch_id}/students", response_model=StudentUploadResponse, status_code=status.HTTP_201_CREATED)
@@ -176,19 +184,26 @@ def assign_instructor_to_batch(
     if instructor is None or instructor.role != UserRole.instructor:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Instructor not found")
 
-    existing = (
-        db.query(InstructorAssignment)
-        .filter(
-            InstructorAssignment.instructor_id == payload.instructor_id,
-            InstructorAssignment.batch_id == batch_id,
+    # One instructor per batch: a batch that already has an instructor is never
+    # silently reassigned or given a second one.
+    current = db.query(InstructorAssignment).filter(InstructorAssignment.batch_id == batch_id).first()
+    if current is not None:
+        if current.instructor_id == payload.instructor_id:
+            return {"detail": "Already assigned"}
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This batch already has an instructor. A batch can have only one instructor.",
         )
-        .first()
-    )
-    if existing:
-        return {"detail": "Already assigned"}
 
     db.add(InstructorAssignment(instructor_id=payload.instructor_id, batch_id=batch_id))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This batch already has an instructor. A batch can have only one instructor.",
+        )
     return {"detail": "Instructor assigned"}
 
 

@@ -23,8 +23,9 @@ from app.models.quiz import (
     Quiz,
     QuizAnswer,
     QuizSubmission,
-    RevealPolicy,
+    QuizType,
 )
+from app.models.student_quiz_progress import StudentQuizProgress
 from app.models.user import UserRole
 from app.schemas.quiz import (
     QuizCreate,
@@ -33,6 +34,11 @@ from app.schemas.quiz import (
     QuizSubmitRequest,
     QuizSubmitResponse,
     QuizAnswerResult,
+)
+from app.services.progress import (
+    assignment_review,
+    missing_assignment_prerequisites,
+    student_quiz_status,
 )
 
 router = APIRouter(tags=["quizzes"])
@@ -114,7 +120,24 @@ def get_quiz(
     # Admin/instructor see is_correct; students don't
     if current_user.role in (UserRole.admin, UserRole.instructor):
         return QuizOutAdmin.model_validate(quiz)
-    return QuizOut.model_validate(quiz)
+    # Locked means locked for viewing too: no questions until the earlier steps are done.
+    if quiz.quiz_type == QuizType.assignment:
+        missing = missing_assignment_prerequisites(current_user.id, quiz.experiment, db)
+        if missing:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Assignment is locked. Complete these first: " + ", ".join(missing),
+            )
+    out = QuizOut.model_validate(quiz)
+    out.my_submitted, saved_score = student_quiz_status(current_user.id, quiz, db)
+    if quiz.quiz_type == QuizType.assignment:
+        # Assignment scores are immediately visible to the submitting student.
+        out.my_assignment_score = saved_score
+        # Correct answers are revealed only after this student has submitted.
+        out.my_review = assignment_review(current_user.id, quiz, db)
+    else:
+        out.my_best_score = saved_score
+    return out
 
 
 # ── Submit quiz ───────────────────────────────────────────────────────────────
@@ -131,17 +154,57 @@ def submit_quiz(
     current_user: User = Depends(get_current_active_user),
 ):
     """
-    Accept quiz answers and return per-question correctness.
-    For pre/post (ungraded): no score stored.
-    For assignment (graded): stores score; reveals it based on reveal_policy.
-    Re-submission is always allowed — each call creates a new attempt.
+    Accept quiz answers and return current-submission correctness.
+    Pre/post (self-assessment): unlimited attempts, with only one saved best-score
+    record per student/quiz. Individual attempts and selected answers are not saved.
+    Assignment (graded): one accepted submission only; its score is visible immediately
+    to the submitting student. Instructor-facing score release remains separately configured.
     """
+    # Only students take quizzes. Instructors and admins view content and results, they do not submit.
+    if current_user.role != UserRole.student:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only students can submit quizzes")
+
     quiz = _get_quiz_or_404(quiz_id, db)
+
+    # The graded assignment stays locked until the earlier steps are done.
+    # Enforced here (not only in the UI) so it cannot be bypassed by calling the API directly.
+    if quiz.quiz_type == QuizType.assignment:
+        missing = missing_assignment_prerequisites(current_user.id, quiz.experiment, db)
+        if missing:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Assignment is locked. Complete these first: " + ", ".join(missing),
+            )
+
+    # The graded assignment can be submitted exactly once.
+    if quiz.quiz_type == QuizType.assignment:
+        already = (
+            db.query(QuizSubmission)
+            .filter(QuizSubmission.student_id == current_user.id, QuizSubmission.quiz_id == quiz_id)
+            .first()
+        )
+        if already is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "You have already submitted this assignment")
 
     # Build a lookup of valid question_id → {option_id → is_correct}
     question_map: dict[uuid.UUID, dict[uuid.UUID, bool]] = {}
     for question in quiz.questions:
         question_map[question.id] = {opt.id: opt.is_correct for opt in question.options}
+
+    # The browser requires all questions to be answered. Enforce the same rule
+    # here and reject duplicate question IDs to prevent a crafted request from
+    # inflating its score by submitting the same question multiple times.
+    submitted_question_ids = [answer.question_id for answer in payload.answers]
+    if len(submitted_question_ids) != len(set(submitted_question_ids)):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Each quiz question must be answered exactly once",
+        )
+    if set(submitted_question_ids) != set(question_map):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Please answer every question exactly once before submitting",
+        )
 
     # Validate submitted answers
     results: list[QuizAnswerResult] = []
@@ -166,50 +229,87 @@ def submit_quiz(
     # Calculate score (0–100)
     score = round(correct_count / len(quiz.questions) * 100, 2) if quiz.questions else 0.0
 
-    # Determine next attempt number
-    prev_attempts = (
-        db.query(QuizSubmission)
-        .filter(
-            QuizSubmission.student_id == current_user.id,
-            QuizSubmission.quiz_id == quiz_id,
+    now = datetime.now(timezone.utc)
+
+    if quiz.quiz_type in (QuizType.pre, QuizType.post):
+        # Store a single best-score row, not an individual attempt or answer history.
+        progress = db.query(StudentQuizProgress).filter(
+            StudentQuizProgress.student_id == current_user.id,
+            StudentQuizProgress.quiz_id == quiz_id,
+        ).with_for_update().first()
+
+        if progress is None:
+            progress = StudentQuizProgress(
+                student_id=current_user.id,
+                quiz_id=quiz_id,
+                best_score=score,
+                submitted_at=now,
+            )
+            db.add(progress)
+        else:
+            if score > progress.best_score:
+                progress.best_score = score
+            # One timestamp is retained for the result row; no attempt history is kept.
+            progress.submitted_at = now
+
+        try:
+            db.commit()
+        except IntegrityError:
+            # Concurrent first submissions can race on the unique student/quiz key.
+            # Reload the one saved row and keep the higher score rather than storing
+            # another attempt record.
+            db.rollback()
+            progress = db.query(StudentQuizProgress).filter(
+                StudentQuizProgress.student_id == current_user.id,
+                StudentQuizProgress.quiz_id == quiz_id,
+            ).first()
+            if progress is None:
+                raise HTTPException(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "Could not save quiz progress. Please try again.",
+                )
+            if score > progress.best_score:
+                progress.best_score = score
+            progress.submitted_at = now
+            db.commit()
+        db.refresh(progress)
+        best_score = progress.best_score
+        # Return this attempt's score for immediate feedback only. The database
+        # still retains only the best score and submitted state, never attempt history.
+        revealed_score = score
+    else:
+        # Assignment submissions are kept separately; only one accepted row is allowed.
+        submission = QuizSubmission(
+            student_id=current_user.id,
+            quiz_id=quiz_id,
+            attempt_number=1,
+            score=score,
+            submitted_at=now,
         )
-        .count()
-    )
-    attempt_number = prev_attempts + 1
-
-    # Persist submission
-    submission = QuizSubmission(
-        student_id=current_user.id,
-        quiz_id=quiz_id,
-        attempt_number=attempt_number,
-        score=score if quiz.is_scored else None,
-        submitted_at=datetime.now(timezone.utc),
-    )
-    db.add(submission)
-    db.flush()
-
-    for answer in payload.answers:
-        opts = question_map[answer.question_id]
-        db.add(QuizAnswer(
-            quiz_submission_id=submission.id,
-            question_id=answer.question_id,
-            selected_option_id=answer.selected_option_id,
-            is_correct=opts[answer.selected_option_id],
-        ))
-
-    db.commit()
-
-    # Decide whether to reveal score (assignment only, based on reveal_policy)
-    revealed_score: float | None = None
-    if quiz.is_scored:
-        if quiz.reveal_policy == RevealPolicy.immediate:
-            revealed_score = score
-        elif quiz.reveal_policy == RevealPolicy.after_deadline:
-            if quiz.deadline is None or datetime.now(timezone.utc) >= quiz.deadline:
-                revealed_score = score
+        db.add(submission)
+        try:
+            db.flush()
+            for answer in payload.answers:
+                opts = question_map[answer.question_id]
+                db.add(QuizAnswer(
+                    quiz_submission_id=submission.id,
+                    question_id=answer.question_id,
+                    selected_option_id=answer.selected_option_id,
+                    is_correct=opts[answer.selected_option_id],
+                ))
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "You have already submitted this assignment",
+            )
+        # Current approved student rule: assignment score is visible immediately.
+        revealed_score = score
+        best_score = None
 
     return QuizSubmitResponse(
-        attempt_number=attempt_number,
         score=revealed_score,
+        best_score=best_score,
         answers=results,
     )

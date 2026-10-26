@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, batches, code_submissions, dashboards, experiments, quizzes
+from app.routers import auth, batches, code_submissions, dashboards, experiments, instructor, quizzes
 
 app = FastAPI(title="ML Virtual Lab API", version="0.1.0")
 
@@ -20,6 +20,7 @@ app.include_router(experiments.router)
 app.include_router(quizzes.router)
 app.include_router(code_submissions.router)
 app.include_router(dashboards.router)
+app.include_router(instructor.router)
 
 
 @app.get("/health")
